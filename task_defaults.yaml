@@ -1,0 +1,161 @@
+common:
+  use_formation: true
+  adjust_level: false
+  use_stamina: false
+  stamina_can_limit: 800
+  beast_icon_index: 0
+hunt_ice_beast:
+  interval: 120
+  beast_level: 8
+  default_beast_level: 1
+  adjust_level: false
+  formation_name: '6'
+  rally_duration_minutes: 5
+  use_stamina: false
+  stamina_can_limit: 800
+  check_march_heroes: true
+  use_formation: true
+  skip_hour: -1
+  step_delay: 1.5
+  coords:
+    world_map:
+    - 630
+    - 1220
+    search_open:
+    - 55
+    - 880
+    ice_beast_tab:
+    - 244
+    - 918
+    level_minus:
+    - 66
+    - 1050
+    level_plus:
+    - 482
+    - 1048
+    search_confirm:
+    - 360
+    - 1175
+    target_tap:
+    - 360
+    - 640
+    rally:
+    - 280
+    - 1100
+    rally_confirm:
+    - 360
+    - 882
+    rally_time_5:
+    - 220
+    - 462
+    rally_time_15:
+    - 500
+    - 462
+    rally_time_30:
+    - 220
+    - 518
+    rally_time_60:
+    - 500
+    - 518
+    march:
+    - 560
+    - 1200
+    dialog_cancel:
+    - 250
+    - 780
+    stamina_use:
+    - 576
+    - 522
+auto_lighthouse:
+  event_period: false
+  interval: 60
+  formation_slot: 8
+  check_march_heroes: true
+  use_stamina: false
+  stamina_can_limit: 800
+  monster_cooldown: 60
+  step_delay: 1.5
+  coords:
+    lighthouse_open:
+    - 666
+    - 862
+    view_immediately:
+    - 354
+    - 908
+    mission_confirm_1:
+    - 354
+    - 908
+    mission_confirm_2:
+    - 350
+    - 630
+    hero_journey_finish:
+    - 528
+    - 1196
+    march:
+    - 560
+    - 1200
+    hide_completed:
+    - 364
+    - 1124
+    mission_confirm_1_beast:
+    - 354
+    - 886
+auto_mining:
+  interval: 3600
+  use_mining_hero: true
+  level_min: 8
+  level_max: 8
+  adjust_level: false
+  step_delay: 1.5
+  hero_roi:
+  - 98
+  - 308
+  - 246
+  - 570
+  hero_match_threshold: 0.68
+  coords:
+    world_map:
+    - 630
+    - 1220
+    search_open:
+    - 55
+    - 880
+    meat_tab:
+    - 154
+    - 914
+    wood_tab:
+    - 320
+    - 914
+    coal_tab:
+    - 474
+    - 914
+    iron_mine_tab:
+    - 622
+    - 912
+    search_confirm:
+    - 360
+    - 1175
+    gather_btn:
+    - 354
+    - 628
+    hero_remove_2:
+    - 424
+    - 318
+    hero_remove_3:
+    - 618
+    - 318
+    level_minus:
+    - 66
+    - 1050
+    level_plus:
+    - 482
+    - 1048
+    full_resource_check:
+    - 214
+    - 1136
+    dialog_cancel:
+    - 250
+    - 780
+    march:
+    - 560
+    - 1200

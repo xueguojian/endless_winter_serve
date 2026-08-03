@@ -1,0 +1,14 @@
+# 模板图目录。坐标系 720×1280 竖屏，与 config device.touch 一致。
+#
+# 根目录：btn_town_label.png, btn_wilderness_label.png, beast_tab.png,
+#   search_icon.png, search_confirm_btn.png, march_btn.png,
+#   stamina_use_btn.png, stamina_get_more_title.png,
+#   rally_btn.png, rally_confirm_btn.png,
+#   ice_beast_tab.png, ice_beast_tab_selected.png,
+#   level_minus_btn.png, level_plus_btn.png
+#
+# lighthouse/：lighthouse_map_bg.png（平常）, lighthouse_map_bg_1.png（活动）, mission_btn_*.png, bounty_*,
+#   monster_keyword_level, beast_keyword_hao
+# training/：train_ready_btn.png, train_ready_collect.png
+# mining/：mining_hero_{meat,wood,coal,iron}_face.png
+# level_num/：1.png ~ N.png（calibrate_level_num.py 生成）
