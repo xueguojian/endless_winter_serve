@@ -23,6 +23,8 @@ SEARCH_PANEL_CAPTURE_ROI = (0, 780, 720, 1280)
 
 # —— 体力（与 stamina_use 一致）——
 STAMINA_POPUP_CAPTURE_ROI = (180, 80, 720, 700)
+# 出征结果：体力标题 + 同目标冲突弹窗（含取消按钮）
+MARCH_OUTCOME_CAPTURE_ROI = (50, 80, 720, 880)
 
 
 def capture_screen(adb: Any, roi: tuple[int, int, int, int] | None = None):

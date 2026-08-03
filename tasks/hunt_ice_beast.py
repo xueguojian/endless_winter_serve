@@ -15,13 +15,18 @@ from core.adb_client import AdbBusyError, AdbClient, AdbUnavailableError
 from core.capture_roi import (
     BOTTOM_UI_CAPTURE_ROI,
     DEPLOY_CAPTURE_ROI,
+    MARCH_OUTCOME_CAPTURE_ROI,
     SEARCH_PANEL_CAPTURE_ROI,
-    STAMINA_POPUP_CAPTURE_ROI,
     capture_screen,
 )
 from core.deploy_march import (
     DEPLOY_WAIT_SETTLE_SEC,
     find_march_button,
+)
+from core.march_target_conflict import (
+    SAME_TARGET_CANCEL_XY,
+    SameTargetConflictError,
+    is_same_target_conflict_dialog,
 )
 from core.navigation import WildernessNavigator
 from core.search_level import adjust_search_level
@@ -135,6 +140,10 @@ class NoStaminaError(RuntimeError):
 
 class MarchHeroCheckError(RuntimeError):
     """出征英雄栏存在空槽位。"""
+
+
+# 同目标冲突时立刻重开搜索的最大次数，避免死循环
+MAX_SAME_TARGET_RETRIES = 8
 
 
 class HuntIceBeastTask:
@@ -751,13 +760,22 @@ class HuntIceBeastTask:
             close_with_back=True,
         )
 
+    def _dismiss_same_target_conflict(self) -> None:
+        """点冲突弹窗左侧「取消」，放弃本次出征。"""
+        if "same_target_cancel" in self.coords:
+            cx, cy = tuple(self.coords["same_target_cancel"])
+        else:
+            cx, cy = SAME_TARGET_CANCEL_XY
+        self._emit(f"目标冲突弹窗，点击取消 @ ({cx},{cy})")
+        self._tap_xy(int(cx), int(cy), delay=1.0)
+
     def _wait_march_outcome(
         self, delay: float = MARCH_OUTCOME_DELAY_SEC
     ) -> tuple[bool, object]:
         """等待出征结果。
 
         返回 (是否体力不足弹窗, 本次截图)。
-        无弹窗时截图可复用给出征收尾，避免再截一张。
+        若出现「其他队伍目标相同」则点取消并抛 SameTargetConflictError。
         """
         self._emit("正在检测出征结果…")
         logger.info(f"开始检测出征结果（延迟 {delay:.1f}s 后 OCR 一次）")
@@ -765,13 +783,18 @@ class HuntIceBeastTask:
         if self._interrupted():
             raise InterruptedError("任务已停止")
 
-        screen = capture_screen(self.adb, STAMINA_POPUP_CAPTURE_ROI)
+        screen = capture_screen(self.adb, MARCH_OUTCOME_CAPTURE_ROI)
+        if is_same_target_conflict_dialog(screen):
+            logger.info("检测到同目标冲突弹窗（OCR）")
+            self._dismiss_same_target_conflict()
+            raise SameTargetConflictError("有其他队伍与出征目标相同")
+
         is_popup = self._is_stamina_popup(screen)
         if is_popup:
             logger.info("检测到体力不足弹窗（OCR）")
             return True, screen
         logger.info("未检测到体力不足弹窗，视为出征成功")
-        # 体力 ROI 不含底部导航，成功时不复用该帧
+        # 出征结果 ROI 不含底部导航完整态，成功时不复用该帧
         return False, None
 
     def _finish_after_march(self, screen=None) -> None:
@@ -821,7 +844,20 @@ class HuntIceBeastTask:
 
         self._last_run = time.time()
         try:
-            self.run_hunt_cycle()
+            for attempt in range(1, MAX_SAME_TARGET_RETRIES + 1):
+                try:
+                    self.run_hunt_cycle()
+                    break
+                except SameTargetConflictError:
+                    self._emit(
+                        f"目标已被他人集结，已取消，立即重搜 "
+                        f"({attempt}/{MAX_SAME_TARGET_RETRIES})"
+                    )
+                    if attempt >= MAX_SAME_TARGET_RETRIES:
+                        self._emit("多次遇目标冲突，本轮放弃")
+                        self._wilderness.try_return_to_wilderness()
+                        return False
+                    continue
             self._emit(f"本轮完成，{int(self.interval // 60)} 分钟后再次集结")
             return True
         except InterruptedError:

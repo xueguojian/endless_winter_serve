@@ -10,6 +10,8 @@ users:
     password: admin123
   - username: test
     password: test123
+  - username: user1
+    password: user123
 
 # 默认任务参数（客户端可覆盖部分字段）
 tasks:
