@@ -66,6 +66,44 @@ hunt_ice_beast:
     stamina_use:
     - 576
     - 522
+hunt_monster:
+  interval: 60
+  monster_level: 30
+  adjust_level: false
+  formation_name: '6'
+  use_stamina: false
+  stamina_can_limit: 800
+  use_formation: true
+  skip_hour: -1
+  step_delay: 1.5
+  coords:
+    search_open:
+    - 55
+    - 880
+    beast_tab:
+    - 84
+    - 914
+    search_confirm:
+    - 366
+    - 1216
+    target_tap:
+    - 360
+    - 640
+    march:
+    - 560
+    - 1200
+    dialog_cancel:
+    - 250
+    - 780
+    stamina_use:
+    - 576
+    - 522
+    level_minus:
+    - 66
+    - 1050
+    level_plus:
+    - 482
+    - 1048
 auto_lighthouse:
   event_period: false
   interval: 60

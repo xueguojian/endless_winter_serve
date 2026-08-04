@@ -35,6 +35,16 @@ tasks:
     use_formation: true
     skip_hour: -1
     step_delay: 1.5
+  hunt_monster:
+    interval: 60
+    monster_level: 30
+    adjust_level: false
+    formation_name: "6"
+    use_stamina: false
+    stamina_can_limit: 800
+    use_formation: true
+    skip_hour: -1
+    step_delay: 1.5
   auto_lighthouse:
     interval: 60
     event_period: false

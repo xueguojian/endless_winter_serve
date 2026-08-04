@@ -873,8 +873,15 @@ class AutoLighthouseTask:
             raise
         except StaminaInsufficientError as exc:
             self._emit(str(exc))
-            self._return_to_wilderness_main()
-            return False
+            try:
+                self._return_to_wilderness_main()
+            except Exception as nav_exc:
+                logger.warning(f"[{self.name}] 返回野外失败: {nav_exc}")
+            if self.use_stamina:
+                # 已尝试补体仍不足：跳过本轮，交由调度继续
+                return False
+            self._stop_event.set()
+            raise InterruptedError("没有体力，已停止") from exc
         except Exception as exc:
             logger.exception(f"[{self.name}] 执行失败")
             self._emit(f"执行失败：{exc}")

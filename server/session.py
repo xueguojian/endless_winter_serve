@@ -14,7 +14,9 @@ from loguru import logger
 from server.config import merge_task_config
 from server.proxy_adb import ClientCommand, ProxyAdb
 
-SUPPORTED_TASKS = ("hunt_ice_beast", "auto_lighthouse", "auto_mining")
+SUPPORTED_TASKS = ("hunt_ice_beast", "hunt_monster", "auto_lighthouse", "auto_mining")
+# 共用搜索面板 tab 拖动记忆
+_SEARCH_TAB_TASKS = frozenset({"hunt_ice_beast", "hunt_monster"})
 
 
 class UserSession:
@@ -27,6 +29,9 @@ class UserSession:
         self._worker: threading.Thread | None = None
         self._task_id: str | None = None
         self._running = False
+        # 巨兽跨轮次状态（云控每轮新建任务实例，需会话级记忆）
+        self._hunt_tab_bar_scrolled = False
+        self._hunt_level_adjusted = False
 
     @property
     def busy(self) -> bool:
@@ -43,6 +48,10 @@ class UserSession:
         with self._lock:
             if self._running:
                 raise RuntimeError("已有任务在运行，请先停止")
+            # 中途切到非搜索类任务后，游戏 UI 可能已复位，下次搜索需重新拖 tab
+            if task_id not in _SEARCH_TAB_TASKS:
+                self._hunt_tab_bar_scrolled = False
+                self._hunt_level_adjusted = False
             cfg = merge_task_config(task_id, override)
             proxy = ProxyAdb()
             task = self._build_task(task_id, cfg, proxy, on_status)
@@ -84,6 +93,7 @@ class UserSession:
                 "actions": [],
                 "status": "无任务",
                 "error": None,
+                "abort_loop": False,
             }
         frame = None
         if jpeg_bytes:
@@ -97,6 +107,7 @@ class UserSession:
             "actions": cmd.actions,
             "status": cmd.status,
             "error": cmd.error,
+            "abort_loop": bool(cmd.abort_loop),
             "task_id": self._task_id,
         }
 
@@ -121,6 +132,12 @@ class UserSession:
             ok = bool(task.run_once(force=True))
             proxy.set_status("完成" if ok else "本轮未成功")
             proxy.mark_done()
+        except InterruptedError as exc:
+            # 体力不足 / 罐头上限 / 主动停止：干净结束，并通知客户端终止大循环
+            msg = str(exc).strip() or "任务已停止"
+            logger.info("任务中断: {}", msg)
+            proxy.set_status(msg)
+            proxy.mark_done(abort_loop=True)
         except Exception as exc:
             logger.exception("任务执行异常: {}", exc)
             proxy.set_status("任务异常")
@@ -128,6 +145,14 @@ class UserSession:
         finally:
             time_mod.sleep = original_sleep
             with self._lock:
+                # 无论成败，记下本轮是否已拖过 tab / 调过等级
+                if self._task_id in _SEARCH_TAB_TASKS and task is not None:
+                    self._hunt_tab_bar_scrolled = bool(
+                        getattr(task, "_tab_bar_already_scrolled", False)
+                    )
+                    self._hunt_level_adjusted = bool(
+                        getattr(task, "_level_already_adjusted", False)
+                    )
                 self._running = False
 
     @staticmethod
@@ -159,6 +184,10 @@ class UserSession:
                 cfg.get("formation_name", cfg.get("formation_slot", 6)),
                 default_slot=6,
             )
+            use_formation, formation_slot = resolve_formation_slot(
+                cfg.get("formation_name", cfg.get("formation_slot", 6)),
+                default_slot=6,
+            )
             return HuntIceBeastTask(
                 adb=proxy,
                 coords=coords,
@@ -174,6 +203,58 @@ class UserSession:
                 use_formation=use_formation,
                 adjust_level=bool(cfg.get("adjust_level", False)),
                 beast_icon_index=int(cfg.get("beast_icon_index") or 0),
+                tab_bar_already_scrolled=self._hunt_tab_bar_scrolled,
+                level_already_adjusted=self._hunt_level_adjusted,
+                on_status=_status,
+            )
+        if task_id == "hunt_monster":
+            from core.common_task_opts import resolve_formation_slot
+            from tasks.hunt_monster import HuntMonsterTask
+
+            use_formation, formation_slot = resolve_formation_slot(
+                cfg.get("formation_name", cfg.get("formation_slot", 6)),
+                default_slot=6,
+            )
+            return HuntMonsterTask(
+                adb=proxy,
+                coords=coords,
+                interval=float(cfg.get("interval") or 60),
+                monster_level=int(cfg.get("monster_level") or 30),
+                formation_name=str(formation_slot),
+                skip_hour=int(cfg.get("skip_hour") or -1),
+                step_delay=float(cfg.get("step_delay") or 1.5),
+                use_stamina=bool(cfg.get("use_stamina", False)),
+                stamina_can_limit=int(cfg.get("stamina_can_limit") or 800),
+                use_formation=use_formation,
+                adjust_level=bool(cfg.get("adjust_level", False)),
+                beast_icon_index=int(cfg.get("beast_icon_index") or 0),
+                tab_bar_already_scrolled=self._hunt_tab_bar_scrolled,
+                level_already_adjusted=self._hunt_level_adjusted,
+                on_status=_status,
+            )
+        if task_id == "hunt_monster":
+            from core.common_task_opts import resolve_formation_slot
+            from tasks.hunt_monster import HuntMonsterTask
+
+            use_formation, formation_slot = resolve_formation_slot(
+                cfg.get("formation_name", cfg.get("formation_slot", 6)),
+                default_slot=6,
+            )
+            return HuntMonsterTask(
+                adb=proxy,
+                coords=coords,
+                interval=float(cfg.get("interval") or 60),
+                monster_level=int(cfg.get("monster_level") or 30),
+                formation_name=str(formation_slot),
+                skip_hour=int(cfg.get("skip_hour") or -1),
+                step_delay=float(cfg.get("step_delay") or 1.5),
+                use_stamina=bool(cfg.get("use_stamina", False)),
+                stamina_can_limit=int(cfg.get("stamina_can_limit") or 800),
+                use_formation=use_formation,
+                adjust_level=bool(cfg.get("adjust_level", False)),
+                beast_icon_index=int(cfg.get("beast_icon_index") or 0),
+                tab_bar_already_scrolled=self._hunt_tab_bar_scrolled,
+                level_already_adjusted=self._hunt_level_adjusted,
                 on_status=_status,
             )
         if task_id == "auto_lighthouse":

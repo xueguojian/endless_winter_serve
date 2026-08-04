@@ -22,6 +22,8 @@ class ClientCommand:
     running: bool = True
     error: str | None = None
     done: bool = False
+    # True：客户端应终止整个任务大循环（如体力不足未勾选自动补体）
+    abort_loop: bool = False
 
 
 class ProxyAdb:
@@ -44,6 +46,7 @@ class ProxyAdb:
         self._closed = False
         self._status = ""
         self._error: str | None = None
+        self._abort_loop = False
         self._awaiting_roi: tuple[int, int, int, int] | None = None
         self._next_roi: tuple[int, int, int, int] | None = None
 
@@ -51,10 +54,12 @@ class ProxyAdb:
         with self._cv:
             self._status = text or ""
 
-    def close(self, error: str | None = None) -> None:
+    def close(self, error: str | None = None, *, abort_loop: bool = False) -> None:
         with self._cv:
             self._closed = True
             self._error = error
+            if abort_loop:
+                self._abort_loop = True
             if self._out_cmd is None:
                 self._out_cmd = ClientCommand(
                     actions=list(self._pending),
@@ -63,13 +68,16 @@ class ProxyAdb:
                     running=False,
                     error=error,
                     done=True,
+                    abort_loop=self._abort_loop,
                 )
                 self._pending.clear()
             self._cv.notify_all()
 
-    def mark_done(self) -> None:
+    def mark_done(self, *, abort_loop: bool = False) -> None:
         with self._cv:
             self._closed = True
+            if abort_loop:
+                self._abort_loop = True
             self._out_cmd = ClientCommand(
                 actions=list(self._pending),
                 need_screenshot=False,
@@ -77,6 +85,7 @@ class ProxyAdb:
                 running=False,
                 error=self._error,
                 done=True,
+                abort_loop=self._abort_loop,
             )
             self._pending.clear()
             self._cv.notify_all()
@@ -131,6 +140,7 @@ class ProxyAdb:
                         running=False,
                         error=self._error,
                         done=True,
+                        abort_loop=self._abort_loop,
                     )
                 remaining = deadline - time.time()
                 if remaining <= 0:

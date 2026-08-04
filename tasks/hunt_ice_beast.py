@@ -165,6 +165,8 @@ class HuntIceBeastTask:
         use_formation: bool = True,
         adjust_level: bool = False,
         beast_icon_index: int = 0,
+        tab_bar_already_scrolled: bool = False,
+        level_already_adjusted: bool = False,
         on_status: StatusCallback | None = None,
     ):
         self.adb = adb
@@ -203,8 +205,8 @@ class HuntIceBeastTask:
         self._stop_event = threading.Event()
         self._running = False
         # 连续执行冰原巨兽时，搜索 tab 栏仍停留在上次滚动的位置
-        self._tab_bar_already_scrolled = False
-        self._level_already_adjusted = False
+        self._tab_bar_already_scrolled = bool(tab_bar_already_scrolled)
+        self._level_already_adjusted = bool(level_already_adjusted)
         self._wilderness = WildernessNavigator.from_task(
             self, is_overlay_open=self._is_search_panel_visible
         )
