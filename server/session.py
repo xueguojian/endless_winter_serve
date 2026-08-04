@@ -152,36 +152,46 @@ class UserSession:
 
         coords = dict(cfg.get("coords") or {})
         if task_id == "hunt_ice_beast":
+            from core.common_task_opts import resolve_formation_slot
             from tasks.hunt_ice_beast import HuntIceBeastTask
 
+            use_formation, formation_slot = resolve_formation_slot(
+                cfg.get("formation_name", cfg.get("formation_slot", 6)),
+                default_slot=6,
+            )
             return HuntIceBeastTask(
                 adb=proxy,
                 coords=coords,
                 interval=float(cfg.get("interval") or 120),
                 beast_level=int(cfg.get("beast_level") or 8),
                 default_beast_level=int(cfg.get("default_beast_level") or 1),
-                formation_name=str(cfg.get("formation_name") or "6"),
+                formation_name=str(formation_slot),
                 rally_duration_minutes=int(cfg.get("rally_duration_minutes") or 5),
                 skip_hour=int(cfg.get("skip_hour") or -1),
                 step_delay=float(cfg.get("step_delay") or 1.5),
                 use_stamina=bool(cfg.get("use_stamina", False)),
                 stamina_can_limit=int(cfg.get("stamina_can_limit") or 800),
-                use_formation=bool(cfg.get("use_formation", True)),
+                use_formation=use_formation,
                 adjust_level=bool(cfg.get("adjust_level", False)),
                 beast_icon_index=int(cfg.get("beast_icon_index") or 0),
                 on_status=_status,
             )
         if task_id == "auto_lighthouse":
+            from core.common_task_opts import resolve_formation_slot
             from tasks.auto_lighthouse import AutoLighthouseTask
 
+            use_formation, formation_slot = resolve_formation_slot(
+                cfg.get("formation_slot", 8),
+                default_slot=8,
+            )
             return AutoLighthouseTask(
                 adb=proxy,
                 coords=coords,
                 interval=float(cfg.get("interval") or 60),
-                formation_slot=int(cfg.get("formation_slot") or 8),
+                formation_slot=formation_slot,
                 use_stamina=bool(cfg.get("use_stamina", False)),
                 stamina_can_limit=int(cfg.get("stamina_can_limit") or 800),
-                use_formation=bool(cfg.get("use_formation", True)),
+                use_formation=use_formation,
                 event_period=bool(cfg.get("event_period", False)),
                 monster_cooldown=float(cfg.get("monster_cooldown") or 60),
                 step_delay=float(cfg.get("step_delay") or 1.5),

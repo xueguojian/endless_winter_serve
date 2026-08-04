@@ -173,7 +173,14 @@ class HuntIceBeastTask:
         self.beast_level = beast_level
         self.default_beast_level = default_beast_level
         self.formation_name = str(formation_name).strip()
-        self.use_formation = use_formation
+        # 槽位 0 = 不启用编队、不校验英雄（优先于 use_formation 开关）
+        if self.formation_name == "0" or (
+            self.formation_name.isdigit() and int(self.formation_name) == 0
+        ):
+            self.use_formation = False
+            self.formation_name = "0"
+        else:
+            self.use_formation = bool(use_formation)
         self.adjust_level = adjust_level
         self.beast_icon_index = max(0, int(beast_icon_index))
         self._search_tab_step = resolve_search_tab_step(coords)

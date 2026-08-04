@@ -173,3 +173,19 @@ def resolve_use_formation(cfg: dict[str, Any]) -> bool:
     if "check_march_heroes" in cfg:
         return bool(cfg["check_march_heroes"])
     return True
+
+
+def resolve_formation_slot(
+    value: Any, *, default_slot: int = 6
+) -> tuple[bool, int]:
+    """编队槽位约定：1~8 启用编队并校验英雄；0 = 不启用、不校验。"""
+    if value is None or str(value).strip() == "":
+        slot = int(default_slot)
+    else:
+        try:
+            slot = int(str(value).strip())
+        except (TypeError, ValueError):
+            slot = int(default_slot)
+    if slot <= 0:
+        return False, 0
+    return True, min(8, slot)

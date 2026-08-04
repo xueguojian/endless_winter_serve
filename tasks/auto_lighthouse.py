@@ -143,9 +143,12 @@ class AutoLighthouseTask:
         self.adb = adb
         self.coords = merged["coords"]
         self.interval = interval
-        self.formation_slot = formation_slot
+        self.formation_slot = int(formation_slot)
         self.use_stamina = use_stamina
         self.use_formation = merged["use_formation"]
+        if self.formation_slot <= 0:
+            self.use_formation = False
+            self.formation_slot = 0
         self.step_delay = merged["step_delay"]
         self.monster_cooldown = merged["monster_cooldown"]
         self.event_period = merged["event_period"]
@@ -163,7 +166,7 @@ class AutoLighthouseTask:
         self.vision = Vision(TEMPLATE_DIR, threshold=0.70)
         self._deploy = DeployMarchHelper(
             adb,
-            formation_slot=formation_slot,
+            formation_slot=self.formation_slot,
             use_stamina=use_stamina,
             stamina_can_limit=stamina_can_limit,
             coords=self.coords,
