@@ -14,7 +14,14 @@ from loguru import logger
 from server.config import merge_task_config
 from server.proxy_adb import ClientCommand, ProxyAdb
 
-SUPPORTED_TASKS = ("hunt_ice_beast", "hunt_monster", "auto_lighthouse", "auto_mining")
+SUPPORTED_TASKS = (
+    "hunt_ice_beast",
+    "hunt_monster",
+    "auto_lighthouse",
+    "auto_mining",
+    "collect_supplies",
+    "donate_alliance_supplies",
+)
 # 共用搜索面板 tab 拖动记忆
 _SEARCH_TAB_TASKS = frozenset({"hunt_ice_beast", "hunt_monster"})
 
@@ -192,10 +199,6 @@ class UserSession:
                 cfg.get("formation_name", cfg.get("formation_slot", 6)),
                 default_slot=6,
             )
-            use_formation, formation_slot = resolve_formation_slot(
-                cfg.get("formation_name", cfg.get("formation_slot", 6)),
-                default_slot=6,
-            )
             return HuntIceBeastTask(
                 adb=proxy,
                 coords=coords,
@@ -204,31 +207,6 @@ class UserSession:
                 default_beast_level=int(cfg.get("default_beast_level") or 1),
                 formation_name=str(formation_slot),
                 rally_duration_minutes=int(cfg.get("rally_duration_minutes") or 5),
-                skip_hour=int(cfg.get("skip_hour") or -1),
-                step_delay=float(cfg.get("step_delay") or 1.5),
-                use_stamina=bool(cfg.get("use_stamina", False)),
-                stamina_can_limit=int(cfg.get("stamina_can_limit") or 800),
-                use_formation=use_formation,
-                adjust_level=bool(cfg.get("adjust_level", False)),
-                beast_icon_index=int(cfg.get("beast_icon_index") or 0),
-                tab_bar_already_scrolled=self._hunt_tab_bar_scrolled,
-                level_already_adjusted=self._hunt_level_adjusted,
-                on_status=_status,
-            )
-        if task_id == "hunt_monster":
-            from core.common_task_opts import resolve_formation_slot
-            from tasks.hunt_monster import HuntMonsterTask
-
-            use_formation, formation_slot = resolve_formation_slot(
-                cfg.get("formation_name", cfg.get("formation_slot", 6)),
-                default_slot=6,
-            )
-            return HuntMonsterTask(
-                adb=proxy,
-                coords=coords,
-                interval=float(cfg.get("interval") or 60),
-                monster_level=int(cfg.get("monster_level") or 30),
-                formation_name=str(formation_slot),
                 skip_hour=int(cfg.get("skip_hour") or -1),
                 step_delay=float(cfg.get("step_delay") or 1.5),
                 use_stamina=bool(cfg.get("use_stamina", False)),
@@ -300,6 +278,29 @@ class UserSession:
                 step_delay=float(cfg.get("step_delay") or 1.5),
                 hero_match_threshold=float(cfg.get("hero_match_threshold") or 0.68),
                 adjust_level=bool(cfg.get("adjust_level", False)),
+                on_status=_status,
+            )
+        if task_id == "collect_supplies":
+            from tasks.collect_supplies import CollectSuppliesTask
+
+            return CollectSuppliesTask(
+                adb=proxy,
+                coords=coords,
+                interval=float(cfg.get("interval") or 18000),
+                step_delay=float(cfg.get("step_delay") or 1.5),
+                on_status=_status,
+            )
+        if task_id == "donate_alliance_supplies":
+            from tasks.donate_alliance_supplies import DonateAllianceSuppliesTask
+
+            return DonateAllianceSuppliesTask(
+                adb=proxy,
+                coords=coords,
+                interval=float(cfg.get("interval") or 3600),
+                donate_times=int(cfg.get("donate_times") or 25),
+                donate_click_delay=float(cfg.get("donate_click_delay") or 0.35),
+                skip_hour=int(cfg.get("skip_hour") or -1),
+                step_delay=float(cfg.get("step_delay") or 1.5),
                 on_status=_status,
             )
         raise ValueError(task_id)

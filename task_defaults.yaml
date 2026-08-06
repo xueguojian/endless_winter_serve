@@ -197,3 +197,43 @@ auto_mining:
     march:
     - 560
     - 1200
+collect_supplies:
+  interval: 18000
+  step_delay: 1.5
+  coords:
+    explore_open:
+    - 90
+    - 1220
+    idle_reward_open:
+    - 615
+    - 875
+    idle_reward_confirm:
+    - 360
+    - 920
+    dialog_cancel:
+    - 250
+    - 780
+donate_alliance_supplies:
+  interval: 3600
+  donate_times: 25
+  donate_click_delay: 0.35
+  step_delay: 1.5
+  coords:
+    alliance_open:
+    - 522
+    - 1220
+    alliance_tech:
+    - 546
+    - 938
+    perpetual_tech:
+    - 350
+    - 1040
+    donate_btn:
+    - 510
+    - 1040
+    popup_close:
+    - 660
+    - 195
+    dialog_cancel:
+    - 250
+    - 780
