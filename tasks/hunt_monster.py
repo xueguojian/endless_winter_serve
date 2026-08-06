@@ -69,7 +69,7 @@ DEFAULT_TARGET_TAP = (360, 640)
 
 DEFAULT_COORDS: dict[str, list[int]] = {
     "dialog_cancel": [250, 780],
-    "search_open": [55, 880],
+    "search_open": [42, 872],
     "beast_tab": list(DEFAULT_BEAST_TAB),
     "search_confirm": list(DEFAULT_SEARCH_CONFIRM),
     "target_tap": list(DEFAULT_TARGET_TAP),

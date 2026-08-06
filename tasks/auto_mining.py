@@ -58,7 +58,7 @@ DEFAULT_HERO_ROI = (98, 308, 246, 570)
 
 DEFAULT_COORDS: dict[str, list[int]] = {
     "world_map": [630, 1220],
-    "search_open": [55, 880],
+    "search_open": [42, 872],
     "meat_tab": [154, 914],
     "wood_tab": [320, 914],
     "coal_tab": [474, 914],

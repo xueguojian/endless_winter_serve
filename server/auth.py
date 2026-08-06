@@ -20,7 +20,7 @@ class SessionInfo:
 
 
 class AuthManager:
-    """一个 username / device_id / client_ip 同时只允许一个有效会话。"""
+    """同一 username 同时只允许一个有效会话（重新登录会挤掉自己旧会话）。"""
 
     def __init__(self, users: list[dict[str, str]], token_ttl_hours: float = 24.0):
         self._users = {
@@ -42,13 +42,11 @@ class AuthManager:
         client_ip = (client_ip or "").strip() or "0.0.0.0"
         with self._lock:
             self._purge_expired_locked()
-            # 挤掉同用户 / 同设备 / 同 IP 的旧会话
+            # 只挤掉「同一账号」的旧会话，不同用户可并存（不再按 IP/端口互踢）
             victims = [
                 token
                 for token, sess in self._sessions.items()
                 if sess.username == username
-                or sess.device_id == device_id
-                or sess.client_ip == client_ip
             ]
             for token in victims:
                 self._sessions.pop(token, None)

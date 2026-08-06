@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>云控管理后台</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+    body { margin: 0; background: #f4f6f8; color: #1f2937; }
+    header { background: #111827; color: #fff; padding: 14px 20px; display: flex; gap: 12px; align-items: center; }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    main { max-width: 1100px; margin: 20px auto; padding: 0 16px 40px; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }
+    label { display: block; font-size: 13px; margin-bottom: 4px; color: #4b5563; }
+    input, select, button {
+      font: inherit; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    }
+    button { background: #2563eb; color: #fff; border: none; cursor: pointer; }
+    button.secondary { background: #6b7280; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+    .row > div { min-width: 140px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 6px; text-align: left; vertical-align: top; }
+    th { color: #6b7280; font-weight: 600; }
+    .ok { color: #059669; }
+    .bad { color: #dc2626; }
+    .muted { color: #6b7280; font-size: 12px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tabs button { background: #e5e7eb; color: #111827; }
+    .tabs button.active { background: #2563eb; color: #fff; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 13px; }
+    #loginBox input { width: 220px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>无尽冬日云控 · 管理后台</h1>
+    <span class="muted" id="who" style="color:#9ca3af"></span>
+    <span style="flex:1"></span>
+    <button class="secondary" id="btnLogout" style="display:none">退出</button>
+  </header>
+  <main>
+    <div class="card" id="loginBox">
+      <p class="muted">用管理员账号登录（config.yaml 里 admin_users）。也可只调 API 拉数据。</p>
+      <div class="row">
+        <div>
+          <label>用户名</label>
+          <input id="username" autocomplete="username" />
+        </div>
+        <div>
+          <label>密码</label>
+          <input id="password" type="password" autocomplete="current-password" />
+        </div>
+        <div>
+          <button id="btnLogin">登录</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel" style="display:none">
+      <div class="tabs">
+        <button class="active" data-tab="login">登录日志</button>
+        <button data-tab="op">操作日志</button>
+        <button data-tab="sess">在线会话</button>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>用户名筛选（可空）</label>
+            <input id="filterUser" placeholder="如 test" />
+          </div>
+          <div id="filterActionWrap">
+            <label>操作类型</label>
+            <select id="filterAction">
+              <option value="">全部</option>
+              <option value="task_start">task_start</option>
+              <option value="task_stop">task_stop</option>
+              <option value="logout">logout</option>
+            </select>
+          </div>
+          <div>
+            <label>条数</label>
+            <select id="limit">
+              <option>50</option>
+              <option selected>100</option>
+              <option>200</option>
+            </select>
+          </div>
+          <div><button id="btnRefresh">刷新</button></div>
+        </div>
+        <div id="msg" class="muted"></div>
+        <div style="overflow:auto; margin-top:8px">
+          <table>
+            <thead id="thead"></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script>
+    const state = { token: localStorage.getItem("ew_admin_token") || "", tab: "login", username: localStorage.getItem("ew_admin_user") || "" };
+
+    function $(id) { return document.getElementById(id); }
+    function fmtTime(ts) {
+      if (!ts) return "";
+      const d = new Date(Number(ts) * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    }
+    function setMsg(text, bad=false) {
+      $("msg").textContent = text || "";
+      $("msg").style.color = bad ? "#dc2626" : "#6b7280";
+    }
+    function headers() {
+      return { "Authorization": "Bearer " + state.token };
+    }
+    function showApp() {
+      $("loginBox").style.display = state.token ? "none" : "block";
+      $("panel").style.display = state.token ? "block" : "none";
+      $("btnLogout").style.display = state.token ? "inline-block" : "none";
+      $("who").textContent = state.token ? ("已登录: " + (state.username || "")) : "";
+      $("filterActionWrap").style.display = state.tab === "op" ? "block" : "none";
+      document.querySelectorAll(".tabs button").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.tab === state.tab);
+      });
+    }
+
+    async function doLogin() {
+      const username = $("username").value.trim();
+      const password = $("password").value;
+      setMsg("登录中…");
+      try {
+        const resp = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password, device_id: "admin-web" }),
+        });
+        const data = await resp.json();
+        if (!data.ok) throw new Error(data.error || "登录失败");
+        state.token = data.token;
+        state.username = data.username;
+        localStorage.setItem("ew_admin_token", state.token);
+        localStorage.setItem("ew_admin_user", state.username);
+        showApp();
+        await refresh();
+      } catch (e) {
+        setMsg(String(e.message || e), true);
+      }
+    }
+
+    function logout() {
+      state.token = "";
+      localStorage.removeItem("ew_admin_token");
+      showApp();
+      setMsg("已退出");
+    }
+
+    async function refresh() {
+      if (!state.token) return;
+      setMsg("加载中…");
+      try {
+        let url = "";
+        const user = $("filterUser").value.trim();
+        const limit = $("limit").value;
+        if (state.tab === "login") {
+          url = `/api/admin/login_logs?limit=${limit}` + (user ? `&username=${encodeURIComponent(user)}` : "");
+        } else if (state.tab === "op") {
+          const action = $("filterAction").value;
+          url = `/api/admin/op_logs?limit=${limit}`
+            + (user ? `&username=${encodeURIComponent(user)}` : "")
+            + (action ? `&action=${encodeURIComponent(action)}` : "");
+        } else {
+          url = "/api/admin/sessions";
+        }
+        const resp = await fetch(url, { headers: headers() });
+        const data = await resp.json();
+        if (resp.status === 401 || resp.status === 403) {
+          logout();
+          setMsg(data.detail || data.error || "无权限或登录失效", true);
+          return;
+        }
+        if (!data.ok) throw new Error(data.error || data.detail || "加载失败");
+        render(data.items || []);
+        setMsg(`共 ${ (data.items || []).length } 条`);
+      } catch (e) {
+        setMsg(String(e.message || e), true);
+      }
+    }
+
+    function render(items) {
+      const thead = $("thead");
+      const tbody = $("tbody");
+      tbody.innerHTML = "";
+      if (state.tab === "login") {
+        thead.innerHTML = "<tr><th>时间</th><th>用户</th><th>结果</th><th>IP</th><th>设备</th><th>说明</th></tr>";
+        for (const row of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${fmtTime(row.created_at)}</td>
+            <td>${esc(row.username)}</td>
+            <td class="${row.success ? "ok" : "bad"}">${row.success ? "成功" : "失败"}</td>
+            <td>${esc(row.client_ip)}</td>
+            <td>${esc(row.device_id)}</td>
+            <td>${esc(row.message)}</td>`;
+          tbody.appendChild(tr);
+        }
+      } else if (state.tab === "op") {
+        thead.innerHTML = "<tr><th>时间</th><th>用户</th><th>操作</th><th>IP</th><th>设备</th><th>详情</th></tr>";
+        for (const row of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${fmtTime(row.created_at)}</td>
+            <td>${esc(row.username)}</td>
+            <td>${esc(row.action)}</td>
+            <td>${esc(row.client_ip)}</td>
+            <td>${esc(row.device_id)}</td>
+            <td>${esc(row.detail)}</td>`;
+          tbody.appendChild(tr);
+        }
+      } else {
+        thead.innerHTML = "<tr><th>用户</th><th>设备</th><th>IP</th><th>最近活跃</th></tr>";
+        for (const row of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${esc(row.username)}</td>
+            <td>${esc(row.device_id)}</td>
+            <td>${esc(row.client_ip)}</td>
+            <td>${fmtTime(row.last_seen)}</td>`;
+          tbody.appendChild(tr);
+        }
+      }
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+    }
+
+    $("btnLogin").onclick = doLogin;
+    $("btnLogout").onclick = logout;
+    $("btnRefresh").onclick = refresh;
+    document.querySelectorAll(".tabs button").forEach(btn => {
+      btn.onclick = () => { state.tab = btn.dataset.tab; showApp(); refresh(); };
+    });
+    showApp();
+    if (state.token) refresh();
+  </script>
+</body>
+</html>

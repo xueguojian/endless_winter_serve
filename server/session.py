@@ -321,11 +321,13 @@ class SessionHub:
             return self._sessions.get(token)
 
     def drop_conflicts(self, *, username: str, device_id: str) -> None:
+        """只清掉同账号的旧任务会话；device_id 保留参数兼容，不再用于互踢。"""
+        _ = device_id
         with self._lock:
             victims = [
                 token
                 for token, session in self._sessions.items()
-                if session.username == username or session.device_id == device_id
+                if session.username == username
             ]
         for token in victims:
             self.unbind(token)

@@ -132,7 +132,7 @@ class ProxyAdb:
             self._acked_seq = self._cmd_seq
             self._cv.notify_all()
 
-            deadline = time.time() + 180.0
+            deadline = time.time() + 20.0
             while self._out_cmd is None:
                 if self._closed:
                     return ClientCommand(

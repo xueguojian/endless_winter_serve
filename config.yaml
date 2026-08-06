@@ -4,6 +4,13 @@ port: 8787
 secret: change-me-to-a-long-random-string
 token_ttl_hours: 24
 
+# SQLite 日志库路径（相对服务端根目录；Python 自带 sqlite3，无需另装）
+db_path: data/app.db
+
+# 可访问管理后台 / API 的账号（须同时存在于 users）
+admin_users:
+  - admin
+
 # 写死账号（后续可改数据库）
 users:
   - username: admin
