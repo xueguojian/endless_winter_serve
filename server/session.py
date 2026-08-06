@@ -82,7 +82,9 @@ class UserSession:
             self._worker.join(timeout=3.0)
         with self._lock:
             self._running = False
-
+            # 「停止」= 大循环结束；下次点开始必须重新拖 tab / 调等级
+            self._hunt_tab_bar_scrolled = False
+            self._hunt_level_adjusted = False
     def tick(self, jpeg_bytes: bytes | None) -> dict[str, Any]:
         proxy = self._proxy
         if proxy is None:
@@ -127,6 +129,7 @@ class UserSession:
                 return
 
         time_mod.sleep = patched_sleep
+        abort_big_loop = False
         try:
             proxy.set_status(f"开始执行 {getattr(task, 'name', self._task_id)}")
             ok = bool(task.run_once(force=True))
@@ -134,6 +137,7 @@ class UserSession:
             proxy.mark_done()
         except InterruptedError as exc:
             # 体力不足 / 罐头上限 / 主动停止：干净结束，并通知客户端终止大循环
+            abort_big_loop = True
             msg = str(exc).strip() or "任务已停止"
             logger.info("任务中断: {}", msg)
             proxy.set_status(msg)
@@ -145,8 +149,12 @@ class UserSession:
         finally:
             time_mod.sleep = original_sleep
             with self._lock:
-                # 无论成败，记下本轮是否已拖过 tab / 调过等级
-                if self._task_id in _SEARCH_TAB_TASKS and task is not None:
+                if abort_big_loop:
+                    # 大循环被中止：下次开始需重新拖 tab
+                    self._hunt_tab_bar_scrolled = False
+                    self._hunt_level_adjusted = False
+                elif self._task_id in _SEARCH_TAB_TASKS and task is not None:
+                    # 同一次「开始」内的小循环之间保留记忆
                     self._hunt_tab_bar_scrolled = bool(
                         getattr(task, "_tab_bar_already_scrolled", False)
                     )

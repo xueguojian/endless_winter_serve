@@ -157,17 +157,22 @@ class ProxyAdb:
             return cmd
 
     def _flush(self, *, need_screenshot: bool) -> None:
+        """冲刷动作队列。
+
+        客户端时序是：上传上一帧 → 取回本批动作 → 执行 → 再截图。
+        因此「需要截图」时，绝不能把「取回动作」同一次 tick 带来的帧当成动作后的画面，
+        否则会在清理未完成时误判已在野外（极高画质下更易踩中该竞态）。
+        """
         with self._cv:
             if self._closed:
                 raise RuntimeError(self._error or "会话已结束")
 
-            start_gen = self._frame_gen
             self._cmd_seq += 1
             my_seq = self._cmd_seq
             roi = self._next_roi if need_screenshot else None
             self._next_roi = None
-            if need_screenshot:
-                self._awaiting_roi = roi
+            # 等客户端 ACK 本批动作后再挂 ROI，避免「取指令」那一帧被误贴进 ROI
+            self._awaiting_roi = None
             self._out_cmd = ClientCommand(
                 actions=list(self._pending),
                 need_screenshot=need_screenshot,
@@ -186,9 +191,12 @@ class ProxyAdb:
                 raise RuntimeError(self._error or "会话已结束")
 
             if need_screenshot:
-                while self._frame_gen <= start_gen and not self._closed:
+                # ACK 时带来的帧是动作前的；必须再等客户端执行完并上传的新帧
+                self._awaiting_roi = roi
+                ack_gen = self._frame_gen
+                while self._frame_gen <= ack_gen and not self._closed:
                     self._cv.wait(timeout=1.0)
-                if self._frame is None:
+                if self._frame is None or self._frame_gen <= ack_gen:
                     raise RuntimeError("未收到客户端截图")
 
     def screenshot(
