@@ -11,6 +11,9 @@ import numpy as np
 
 from core.coords import PORTRAIT_HEIGHT, PORTRAIT_WIDTH
 
+# 与客户端 tick HTTP 超时对齐；服务端持有连接等待下一指令时上限
+_TICK_WAIT_SEC = 45.0
+
 
 @dataclass
 class ClientCommand:
@@ -30,6 +33,9 @@ class ProxyAdb:
     """与 AdbClient 关键接口对齐。
 
     tap/swipe/back 先入队；sleep/screenshot 时冲刷并等待客户端完成本轮。
+
+    客户端时序：上传帧 → 取回动作 → 执行 →（若 need_screenshot）再截图上传。
+    ACK 必须在「取走动作」之后，截图结果必须是动作之后的新帧。
     """
 
     def __init__(self, touch_width: int = 720, touch_height: int = 1280):
@@ -109,30 +115,31 @@ class ProxyAdb:
         canvas[y1:y2e, x1:x2e] = crop[: y2e - y1, : x2e - x1]
         return canvas
 
+    def _accept_frame(self, frame: np.ndarray) -> None:
+        if self._awaiting_roi is not None:
+            self._frame = self._paste_roi_frame(frame)
+            self._awaiting_roi = None
+        else:
+            h, w = frame.shape[:2]
+            if (h, w) != (PORTRAIT_HEIGHT, PORTRAIT_WIDTH):
+                import cv2
+
+                frame = cv2.resize(
+                    frame,
+                    (PORTRAIT_WIDTH, PORTRAIT_HEIGHT),
+                    interpolation=cv2.INTER_AREA,
+                )
+            self._frame = frame
+        self._frame_gen += 1
+
     def push_client_result(self, frame: np.ndarray | None) -> ClientCommand:
-        """客户端 tick：提交截图或 ACK，取回下一批动作。"""
+        """客户端 tick：先提交截图，再取走下一批动作（取走后才 ACK）。"""
         with self._cv:
             if frame is not None:
-                if self._awaiting_roi is not None:
-                    self._frame = self._paste_roi_frame(frame)
-                    self._awaiting_roi = None
-                else:
-                    # 整图：若尺寸不对则尽量缩放
-                    h, w = frame.shape[:2]
-                    if (h, w) != (PORTRAIT_HEIGHT, PORTRAIT_WIDTH):
-                        import cv2
+                self._accept_frame(frame)
+                self._cv.notify_all()
 
-                        frame = cv2.resize(
-                            frame,
-                            (PORTRAIT_WIDTH, PORTRAIT_HEIGHT),
-                            interpolation=cv2.INTER_AREA,
-                        )
-                    self._frame = frame
-                self._frame_gen += 1
-            self._acked_seq = self._cmd_seq
-            self._cv.notify_all()
-
-            deadline = time.time() + 20.0
+            deadline = time.time() + _TICK_WAIT_SEC
             while self._out_cmd is None:
                 if self._closed:
                     return ClientCommand(
@@ -154,15 +161,13 @@ class ProxyAdb:
 
             cmd = self._out_cmd
             self._out_cmd = None
+            # 必须在取走指令后 ACK，否则下一轮 flush 会以为已 ACK 而死锁
+            self._acked_seq = self._cmd_seq
+            self._cv.notify_all()
             return cmd
 
     def _flush(self, *, need_screenshot: bool) -> None:
-        """冲刷动作队列。
-
-        客户端时序是：上传上一帧 → 取回本批动作 → 执行 → 再截图。
-        因此「需要截图」时，绝不能把「取回动作」同一次 tick 带来的帧当成动作后的画面，
-        否则会在清理未完成时误判已在野外（极高画质下更易踩中该竞态）。
-        """
+        """冲刷动作队列；需要截图时只接受「动作执行之后」上传的新帧。"""
         with self._cv:
             if self._closed:
                 raise RuntimeError(self._error or "会话已结束")
@@ -171,7 +176,7 @@ class ProxyAdb:
             my_seq = self._cmd_seq
             roi = self._next_roi if need_screenshot else None
             self._next_roi = None
-            # 等客户端 ACK 本批动作后再挂 ROI，避免「取指令」那一帧被误贴进 ROI
+            # 等客户端取走动作后再挂 ROI，避免取指令同一次带来的旧帧被误贴
             self._awaiting_roi = None
             self._out_cmd = ClientCommand(
                 actions=list(self._pending),
@@ -191,11 +196,15 @@ class ProxyAdb:
                 raise RuntimeError(self._error or "会话已结束")
 
             if need_screenshot:
-                # ACK 时带来的帧是动作前的；必须再等客户端执行完并上传的新帧
                 self._awaiting_roi = roi
+                # 取指令之前/之时的帧都是动作前画面，必须再等执行后的新帧
                 ack_gen = self._frame_gen
+                deadline = time.time() + _TICK_WAIT_SEC
                 while self._frame_gen <= ack_gen and not self._closed:
-                    self._cv.wait(timeout=1.0)
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        break
+                    self._cv.wait(timeout=min(1.0, remaining))
                 if self._frame is None or self._frame_gen <= ack_gen:
                     raise RuntimeError("未收到客户端截图")
 
