@@ -42,7 +42,7 @@ class AuthManager:
         client_ip = (client_ip or "").strip() or "0.0.0.0"
         with self._lock:
             self._purge_expired_locked()
-            # 只挤掉「同一账号」的旧会话，不同用户可并存（不再按 IP/端口互踢）
+            # 只挤掉「同一账号」的旧会话，不同用户可并存
             victims = [
                 token
                 for token, sess in self._sessions.items()

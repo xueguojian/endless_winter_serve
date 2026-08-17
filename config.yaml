@@ -15,12 +15,32 @@ admin_users:
 users:
   - username: admin
     password: admin123
+  - username: admin1
+    password: admin1123
+  - username: admin2
+    password: admin2123
   - username: test
     password: test123
+  - username: test1
+    password: test1123
+  - username: test2
+    password: test2123
+  - username: test3
+    password: test3123
+  - username: test4
+    password: test4123
   - username: user1
-    password: user123
+    password: user1123
+  - username: user2
+    password: user2123
+  - username: user3
+    password: user3123
   - username: bamao
     password: bamao123
+  - username: bamao1
+    password: bamao1123
+  - username: bamao2
+    password: bamao2123
 
 # 默认任务参数（客户端可覆盖部分字段）
 tasks:

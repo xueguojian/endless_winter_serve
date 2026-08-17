@@ -113,7 +113,7 @@ RALLY_CONFIRM_THRESHOLD = 0.72
 RALLY_CONFIRM_MIN_Y = 780
 RALLY_CONFIRM_MAX_DX = 90
 # 发起集结弹窗底部确认按钮固定中心（720×1280）
-RALLY_CONFIRM_CENTER = (360, 882)
+RALLY_CONFIRM_CENTER = (354, 814)
 # 发起集结弹窗内时长选项（720×1280 竖屏固定坐标）
 RALLY_TIME_COORDS: dict[int, tuple[int, int]] = {
     5: (220, 462),
