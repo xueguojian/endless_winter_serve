@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -286,3 +286,119 @@ def admin_op_logs(
 def admin_sessions(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     _require_admin(authorization)
     return {"ok": True, "items": auth.dump_sessions()}
+
+
+def _dream_map_payload(dream_map: Any, *, base: str) -> dict[str, Any]:
+    from core.dream_memory.maps import find_map_preview
+
+    preview = find_map_preview(dream_map.map_id)
+    preview_url = (
+        f"{base}/api/dream_memory/preview/{dream_map.map_id}"
+        if preview is not None
+        else None
+    )
+    return {
+        "map_id": dream_map.map_id,
+        "name": dream_map.name,
+        "period": int(dream_map.period),
+        "item_count": len(dream_map.items),
+        "preview_url": preview_url,
+    }
+
+
+@app.get("/api/dream_memory/catalog")
+def dream_memory_catalog(
+    authorization: str | None = Header(default=None),
+    period: int | None = Query(default=None),
+    request: Request = None,  # type: ignore[assignment]
+) -> dict[str, Any]:
+    """寻梦地图目录（期数 + 地图列表），供云控客户端下拉。"""
+    _require_session(authorization)
+    from core.dream_memory.config import CURRENT_MAP_PERIOD, DEFAULT_MAP_PERIOD
+    from core.dream_memory.maps import format_period_choice, list_map_periods, list_maps
+
+    base = str(request.base_url).rstrip("/") if request is not None else ""
+    periods = list_map_periods()
+    maps = list_maps(period=period) if period is not None else list_maps()
+    return {
+        "ok": True,
+        "current_period": CURRENT_MAP_PERIOD,
+        "default_period": DEFAULT_MAP_PERIOD,
+        "periods": [
+            {"period": p, "label": format_period_choice(p)} for p in periods
+        ],
+        "maps": [_dream_map_payload(m, base=base) for m in maps],
+    }
+
+
+@app.get("/api/dream_memory/preview/{map_id}")
+def dream_memory_preview(map_id: str) -> FileResponse:
+    from core.dream_memory.maps import find_map_preview
+
+    path = find_map_preview(map_id)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="预览图不存在")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/dream_memory/maps", response_class=HTMLResponse)
+def dream_memory_maps_page(
+    period: int | None = Query(default=None),
+) -> HTMLResponse:
+    """给用户看的地图一览页（名称+预览图），云控里用链接打开。"""
+    from core.dream_memory.config import DEFAULT_MAP_PERIOD
+    from core.dream_memory.maps import (
+        format_period_choice,
+        list_map_periods,
+        list_maps,
+    )
+
+    show_period = int(period) if period is not None else DEFAULT_MAP_PERIOD
+    periods = list_map_periods()
+    maps = list_maps(period=show_period)
+    period_links = " ".join(
+        f'<a href="/dream_memory/maps?period={p}"'
+        f' style="margin-right:12px;{"font-weight:700" if p==show_period else ""}">'
+        f"{format_period_choice(p)}</a>"
+        for p in periods
+    )
+    cards: list[str] = []
+    for m in maps:
+        from core.dream_memory.maps import find_map_preview
+
+        preview = find_map_preview(m.map_id)
+        img = (
+            f'<img src="/api/dream_memory/preview/{m.map_id}" '
+            f'alt="{m.name}" style="width:100%;max-width:280px;border-radius:8px;" />'
+            if preview is not None
+            else '<div style="height:160px;background:#eee;border-radius:8px;'
+            'display:flex;align-items:center;justify-content:center;color:#888;">无预览</div>'
+        )
+        cards.append(
+            f'<div style="border:1px solid #ddd;border-radius:10px;padding:12px;'
+            f'background:#fff;width:300px;">'
+            f"{img}"
+            f'<div style="margin-top:8px;font-size:16px;font-weight:600;">{m.name}</div>'
+            f'<div style="color:#666;font-size:13px;">id: {m.map_id} · '
+            f"物品 {len(m.items)} · {format_period_choice(m.period)}</div>"
+            f"</div>"
+        )
+    body = "\n".join(cards) if cards else "<p>该期暂无地图</p>"
+    html = f"""<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>寻梦地图一览</title>
+<style>
+body{{font-family:sans-serif;background:#f6f7fb;margin:0;padding:20px;color:#222;}}
+h1{{margin:0 0 8px;}}
+.nav{{margin:12px 0 20px;}}
+.grid{{display:flex;flex-wrap:wrap;gap:16px;}}
+.tip{{color:#666;margin-bottom:16px;}}
+</style></head><body>
+<h1>寻梦记忆 · 地图一览</h1>
+<p class="tip">在云控客户端选择「期数 + 地图 id」；请先进入对应关卡再点开始。</p>
+<div class="nav">{period_links}</div>
+<div class="grid">{body}</div>
+</body></html>"""
+    return HTMLResponse(html)

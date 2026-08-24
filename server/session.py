@@ -21,6 +21,8 @@ SUPPORTED_TASKS = (
     "auto_mining",
     "collect_supplies",
     "donate_alliance_supplies",
+    "auto_tile_match",
+    "dream_memory",
 )
 # 共用搜索面板 tab 拖动记忆
 _SEARCH_TAB_TASKS = frozenset({"hunt_ice_beast", "hunt_monster"})
@@ -259,7 +261,6 @@ class UserSession:
                 use_stamina=bool(cfg.get("use_stamina", False)),
                 stamina_can_limit=int(cfg.get("stamina_can_limit") or 800),
                 use_formation=use_formation,
-                event_period=bool(cfg.get("event_period", False)),
                 monster_cooldown=float(cfg.get("monster_cooldown") or 60),
                 step_delay=float(cfg.get("step_delay") or 1.5),
                 on_status=_status,
@@ -303,6 +304,30 @@ class UserSession:
                 step_delay=float(cfg.get("step_delay") or 1.5),
                 on_status=_status,
             )
+        if task_id == "auto_tile_match":
+            from tasks.auto_tile_match import AutoTileMatchTask
+
+            return AutoTileMatchTask(
+                adb=proxy,
+                step_delay=float(cfg.get("step_delay") or 1.4),
+                tool_delay=float(cfg.get("tool_delay") or 2.0),
+                match_threshold=float(cfg.get("match_threshold") or 0.72),
+                buried_threshold=float(cfg.get("buried_threshold") or 0.52),
+                slot_threshold=float(cfg.get("slot_threshold") or 0.58),
+                free_threshold=float(cfg.get("free_threshold") or 0.70),
+                min_dist=int(cfg.get("min_dist") or 36),
+                slot_capacity=int(cfg.get("slot_capacity") or 7),
+                max_steps=int(cfg.get("max_steps") or 200),
+                search_depth=int(cfg.get("search_depth") or 5),
+                board_roi=list(cfg.get("board_roi") or [8, 100, 708, 842]),
+                temp_roi=list(cfg.get("temp_roi") or [222, 842, 504, 948]),
+                slot_roi=list(cfg.get("slot_roi") or [4, 924, 712, 1122]),
+                on_status=_status,
+            )
+        if task_id == "dream_memory":
+            from tasks.dream_memory import build_dream_memory_task
+
+            return build_dream_memory_task(proxy, cfg, on_status=_status)
         raise ValueError(task_id)
 
 

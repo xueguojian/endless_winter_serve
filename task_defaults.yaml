@@ -237,3 +237,35 @@ donate_alliance_supplies:
     dialog_cancel:
     - 250
     - 780
+auto_tile_match:
+  step_delay: 1.4
+  tool_delay: 2.0
+  match_threshold: 0.72
+  buried_threshold: 0.52
+  slot_threshold: 0.58
+  free_threshold: 0.70
+  min_dist: 36
+  slot_capacity: 7
+  max_steps: 200
+  search_depth: 5
+  board_roi:
+  - 8
+  - 100
+  - 708
+  - 842
+  temp_roi:
+  - 222
+  - 842
+  - 504
+  - 948
+  slot_roi:
+  - 4
+  - 924
+  - 712
+  - 1122
+dream_memory:
+  selected_period: 4
+  selected_map: ""
+  scan_interval: 0.3
+  tap_delay: 1.2
+  tap_between_delay: 0.2

@@ -186,6 +186,7 @@ class LighthouseScanResult:
 
 _MAP_BG_ROI: np.ndarray | None = None
 _MAP_BG_SCREEN: np.ndarray | None = None
+_BG_SCREEN_BY_NAME: dict[str, np.ndarray] = {}
 _event_period: bool = False
 _scan_interrupt_cb: Callable[[], bool] | None = None
 
@@ -1750,6 +1751,60 @@ def configure_lighthouse_scan(*, event_period: bool = False) -> str:
 
 def _is_event_period() -> bool:
     return _event_period
+
+
+
+
+def _load_bg_screen_by_name(name: str) -> np.ndarray | None:
+    """按模板名加载完整背景图（独立缓存，不依赖当前活动态）。"""
+    cached = _BG_SCREEN_BY_NAME.get(name)
+    if cached is not None:
+        return cached
+    path = TEMPLATE_DIR / name
+    image = cv2.imread(str(path))
+    if image is None:
+        logger.warning(f"灯塔地图背景缺失: {path}")
+        return None
+    normalized = _normalize_screen_for_scan(image)
+    _BG_SCREEN_BY_NAME[name] = normalized
+    return normalized
+
+
+def _header_mean_diff_vs_bg(screen: np.ndarray, bg: np.ndarray) -> float:
+    x1, y1, x2, y2 = LIGHTHOUSE_HEADER_ROI
+    patch = screen[y1:y2, x1:x2]
+    reference = bg[y1:y2, x1:x2]
+    if patch.shape != reference.shape:
+        return float("inf")
+    return float(cv2.absdiff(patch, reference).mean())
+
+
+def detect_lighthouse_event_period(screen: np.ndarray) -> bool:
+    """对比顶部刷新条与两张背景，更接近活动背景则判为活动期。"""
+    normalized = _normalize_screen_for_scan(screen)
+    normal_bg = _load_bg_screen_by_name(LIGHTHOUSE_MAP_BG_NORMAL)
+    event_bg = _load_bg_screen_by_name(LIGHTHOUSE_MAP_BG_EVENT)
+    if event_bg is None and normal_bg is None:
+        return False
+    if event_bg is None:
+        return False
+    if normal_bg is None:
+        return True
+    d_normal = _header_mean_diff_vs_bg(normalized, normal_bg)
+    d_event = _header_mean_diff_vs_bg(normalized, event_bg)
+    is_event = d_event < d_normal
+    logger.info(
+        f"灯塔背景自动判断: normal_diff={d_normal:.1f} "
+        f"event_diff={d_event:.1f} → {'活动期' if is_event else '平常'}"
+    )
+    return is_event
+
+
+def auto_configure_lighthouse_scan(screen: np.ndarray) -> bool:
+    """根据当前截图自动选择差分背景并配置扫描。返回是否活动期。"""
+    is_event = detect_lighthouse_event_period(screen)
+    configure_lighthouse_scan(event_period=is_event)
+    return is_event
 
 
 def _extract_pin_patch(

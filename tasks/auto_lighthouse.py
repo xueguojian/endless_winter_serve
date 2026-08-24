@@ -22,7 +22,7 @@ from core.lighthouse_vision import (
     MissionDetailClassification,
     SKIP_MISSION_KINDS,
     classify_mission_detail_screen,
-    configure_lighthouse_scan,
+    auto_configure_lighthouse_scan,
     is_lighthouse_intel_screen,
     mission_detail_action_ready,
     scan_mission_icons,
@@ -179,7 +179,7 @@ class AutoLighthouseTask:
             is_lighthouse_intel=is_lighthouse_intel_screen,
             is_deploy_screen=self._deploy.is_deploy_screen,
         )
-        configure_lighthouse_scan(event_period=self.event_period)
+        self._scan_bg_configured = False
 
     @property
     def name(self) -> str:
@@ -564,9 +564,21 @@ class AutoLighthouseTask:
         if self._is_on_lighthouse_intel_page(screen):
             self._emit("已在情报页，准备扫描")
             self._prepare_lighthouse_scan()
+        else:
+            self._emit("准备下一个小任务，打开情报页")
+            self._open_lighthouse_page()
+        self._configure_scan_background_once()
+
+    def _configure_scan_background_once(self) -> None:
+        """大循环内只在首次进情报页时比对平常/活动背景。"""
+        if self._scan_bg_configured:
             return
-        self._emit("准备下一个小任务，打开情报页")
-        self._open_lighthouse_page()
+        screen = self.adb.screenshot()
+        if not self._is_on_lighthouse_intel_page(screen):
+            return
+        is_event = auto_configure_lighthouse_scan(screen)
+        self._emit(f"情报背景：{'活动期' if is_event else '平常'}")
+        self._scan_bg_configured = True
 
     def _after_mission_completed(self) -> None:
         """每个小任务结束后：回到野外主界面。"""
@@ -710,6 +722,7 @@ class AutoLighthouseTask:
         self._slot_attempts.clear()
         self._skipped_centers.clear()
         self._clear_pin_cache()
+        self._scan_bg_configured = False
         iteration = 0
 
         while not self._interrupted():
@@ -853,7 +866,6 @@ class AutoLighthouseTask:
 
     def run_once(self, *, force: bool = False) -> bool:
         _ = force
-        configure_lighthouse_scan(event_period=self.event_period)
         self._last_run = time.time()
         try:
             count = self.run_lighthouse_cycle()
