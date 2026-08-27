@@ -314,16 +314,21 @@ def dream_memory_catalog(
 ) -> dict[str, Any]:
     """寻梦地图目录（期数 + 地图列表），供云控客户端下拉。"""
     _require_session(authorization)
-    from core.dream_memory.config import CURRENT_MAP_PERIOD, DEFAULT_MAP_PERIOD
-    from core.dream_memory.maps import format_period_choice, list_map_periods, list_maps
+    from core.dream_memory.config import CURRENT_MAP_PERIOD
+    from core.dream_memory.maps import format_period_choice, list_maps
 
     base = str(request.base_url).rstrip("/") if request is not None else ""
-    periods = list_map_periods()
-    maps = list_maps(period=period) if period is not None else list_maps()
+    # 云控可视/选图只开放当前活动期（第 7 期）
+    periods = [CURRENT_MAP_PERIOD]
+    # 若磁盘上尚无第 7 期 yaml，仍返回当期空列表，避免误选旧期
+    query_period = int(period) if period is not None else CURRENT_MAP_PERIOD
+    if query_period != CURRENT_MAP_PERIOD:
+        query_period = CURRENT_MAP_PERIOD
+    maps = list_maps(period=query_period)
     return {
         "ok": True,
         "current_period": CURRENT_MAP_PERIOD,
-        "default_period": DEFAULT_MAP_PERIOD,
+        "default_period": CURRENT_MAP_PERIOD,
         "periods": [
             {"period": p, "label": format_period_choice(p)} for p in periods
         ],
@@ -345,23 +350,14 @@ def dream_memory_preview(map_id: str) -> FileResponse:
 def dream_memory_maps_page(
     period: int | None = Query(default=None),
 ) -> HTMLResponse:
-    """给用户看的地图一览页（名称+预览图），云控里用链接打开。"""
-    from core.dream_memory.config import DEFAULT_MAP_PERIOD
-    from core.dream_memory.maps import (
-        format_period_choice,
-        list_map_periods,
-        list_maps,
-    )
+    """给用户看的地图一览页（名称+预览图），云控里用链接打开。只展示第 7 期。"""
+    from core.dream_memory.config import CURRENT_MAP_PERIOD
+    from core.dream_memory.maps import format_period_choice, list_maps
 
-    show_period = int(period) if period is not None else DEFAULT_MAP_PERIOD
-    periods = list_map_periods()
+    # 可视链接固定只查当前活动期，忽略其它 period 参数
+    show_period = CURRENT_MAP_PERIOD
+    _ = period
     maps = list_maps(period=show_period)
-    period_links = " ".join(
-        f'<a href="/dream_memory/maps?period={p}"'
-        f' style="margin-right:12px;{"font-weight:700" if p==show_period else ""}">'
-        f"{format_period_choice(p)}</a>"
-        for p in periods
-    )
     cards: list[str] = []
     for m in maps:
         from core.dream_memory.maps import find_map_preview
@@ -383,22 +379,23 @@ def dream_memory_maps_page(
             f"物品 {len(m.items)} · {format_period_choice(m.period)}</div>"
             f"</div>"
         )
-    body = "\n".join(cards) if cards else "<p>该期暂无地图</p>"
+    body = "\n".join(cards) if cards else "<p>第 7 期暂无地图（请先在单机版标定后发布到云控）</p>"
     html = f"""<!doctype html>
 <html lang="zh-CN"><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>寻梦地图一览</title>
+<title>寻梦地图一览 · 第 7 期</title>
 <style>
 body{{font-family:sans-serif;background:#f6f7fb;margin:0;padding:20px;color:#222;}}
 h1{{margin:0 0 8px;}}
-.nav{{margin:12px 0 20px;}}
 .grid{{display:flex;flex-wrap:wrap;gap:16px;}}
 .tip{{color:#666;margin-bottom:16px;}}
+.badge{{display:inline-block;background:#1a5fb4;color:#fff;padding:2px 10px;
+border-radius:999px;font-size:13px;margin-bottom:12px;}}
 </style></head><body>
 <h1>寻梦记忆 · 地图一览</h1>
-<p class="tip">在云控客户端选择「期数 + 地图 id」；请先进入对应关卡再点开始。</p>
-<div class="nav">{period_links}</div>
+<div class="badge">{format_period_choice(show_period)}</div>
+<p class="tip">本页仅展示第 7 期地图。请在云控客户端选择对应地图 id，进入关卡后再点开始。</p>
 <div class="grid">{body}</div>
 </body></html>"""
     return HTMLResponse(html)

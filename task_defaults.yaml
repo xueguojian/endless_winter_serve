@@ -264,8 +264,11 @@ auto_tile_match:
   - 712
   - 1122
 dream_memory:
-  selected_period: 4
+  selected_period: 7
   selected_map: ""
   scan_interval: 0.3
   tap_delay: 1.2
   tap_between_delay: 0.2
+  tap_between_delay_min: 0.2
+  tap_between_delay_max: 0.5
+  tap_between_delay_mode: 0.27

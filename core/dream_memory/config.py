@@ -45,9 +45,9 @@ TURBO_PK_TAP_BETWEEN = 0.09
 DEFAULT_TESSERACT_CMD = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 DEFAULT_OCR_ENGINE = "rapidocr"
 
-# 寻梦地图期数：旧 YAML 无 period 时默认第 4 期；当前活动第 5 期
+# 寻梦地图期数：旧 YAML 无 period 时默认第 4 期；当前活动第 7 期
 DEFAULT_MAP_PERIOD = 4
-CURRENT_MAP_PERIOD = 5
+CURRENT_MAP_PERIOD = 7
 
 TAP_INTERVAL_FIXED = "fixed"
 TAP_INTERVAL_RANDOM = "random"

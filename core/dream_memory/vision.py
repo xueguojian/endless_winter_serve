@@ -362,9 +362,12 @@ def read_target_chips(
             active_patches = [patches[i] for i in active_indices]
             batch_texts = ocr_slots_batch(active_patches)
             for slot_index, raw_text in zip(active_indices, batch_texts):
-                ocr_text = raw_text or ocr_chip_rapid_robust(
-                    patches[slot_index], map_keys
-                )
+                ocr_text = raw_text or ""
+                # 空结果或未命中地图名时再复识（加边距/高倍率），避免只认出首字就停
+                if (not ocr_text) or (ocr_text not in keys_set):
+                    retried = ocr_chip_rapid_robust(patches[slot_index], map_keys)
+                    if retried:
+                        ocr_text = retried
                 name, method = resolve_chip_label(
                     patches[slot_index],
                     ocr_text,
