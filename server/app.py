@@ -343,7 +343,15 @@ def dream_memory_preview(map_id: str) -> FileResponse:
     path = find_map_preview(map_id)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="预览图不存在")
-    return FileResponse(path, media_type="image/png")
+    ext = path.suffix.lower()
+    media = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".png": "image/png",
+    }.get(ext, "image/jpeg")
+    return FileResponse(path, media_type=media)
 
 
 @app.get("/dream_memory/maps", response_class=HTMLResponse)
@@ -365,18 +373,15 @@ def dream_memory_maps_page(
         preview = find_map_preview(m.map_id)
         img = (
             f'<img src="/api/dream_memory/preview/{m.map_id}" '
-            f'alt="{m.name}" style="width:100%;max-width:280px;border-radius:8px;" />'
+            f'alt="{m.name}" loading="lazy" />'
             if preview is not None
-            else '<div style="height:160px;background:#eee;border-radius:8px;'
-            'display:flex;align-items:center;justify-content:center;color:#888;">无预览</div>'
+            else '<div class="no-preview">无预览</div>'
         )
         cards.append(
-            f'<div style="border:1px solid #ddd;border-radius:10px;padding:12px;'
-            f'background:#fff;width:300px;">'
+            f'<div class="card">'
             f"{img}"
-            f'<div style="margin-top:8px;font-size:16px;font-weight:600;">{m.name}</div>'
-            f'<div style="color:#666;font-size:13px;">id: {m.map_id} · '
-            f"物品 {len(m.items)} · {format_period_choice(m.period)}</div>"
+            f'<div class="name">{m.name}</div>'
+            f'<div class="meta">id: {m.map_id} · 物品 {len(m.items)}</div>'
             f"</div>"
         )
     body = "\n".join(cards) if cards else "<p>第 7 期暂无地图（请先在单机版标定后发布到云控）</p>"
@@ -386,16 +391,30 @@ def dream_memory_maps_page(
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>寻梦地图一览 · 第 7 期</title>
 <style>
-body{{font-family:sans-serif;background:#f6f7fb;margin:0;padding:20px;color:#222;}}
-h1{{margin:0 0 8px;}}
-.grid{{display:flex;flex-wrap:wrap;gap:16px;}}
-.tip{{color:#666;margin-bottom:16px;}}
-.badge{{display:inline-block;background:#1a5fb4;color:#fff;padding:2px 10px;
-border-radius:999px;font-size:13px;margin-bottom:12px;}}
+*{{box-sizing:border-box;}}
+body{{font-family:sans-serif;background:#f6f7fb;margin:0;padding:10px 12px;color:#222;}}
+h1{{margin:0 0 4px;font-size:18px;}}
+.tip{{color:#666;margin:0 0 8px;font-size:12px;}}
+.badge{{display:inline-block;background:#1a5fb4;color:#fff;padding:1px 8px;
+border-radius:999px;font-size:12px;margin-bottom:8px;}}
+.grid{{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;}}
+.card{{border:1px solid #ddd;border-radius:8px;padding:6px;background:#fff;
+display:flex;flex-direction:column;min-width:0;}}
+.card img{{width:100%;height:auto;max-height:min(38vh,320px);object-fit:contain;
+border-radius:6px;background:#f0f0f0;}}
+.no-preview{{height:120px;background:#eee;border-radius:6px;display:flex;
+align-items:center;justify-content:center;color:#888;font-size:12px;}}
+.name{{margin-top:4px;font-size:13px;font-weight:600;line-height:1.2;
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+.meta{{color:#888;font-size:11px;line-height:1.2;white-space:nowrap;
+overflow:hidden;text-overflow:ellipsis;}}
+@media (max-width:900px){{.grid{{grid-template-columns:repeat(4,minmax(0,1fr));}}}}
+@media (max-width:640px){{.grid{{grid-template-columns:repeat(3,minmax(0,1fr));}}
+.card img{{max-height:28vh;}}}}
 </style></head><body>
 <h1>寻梦记忆 · 地图一览</h1>
 <div class="badge">{format_period_choice(show_period)}</div>
-<p class="tip">本页仅展示第 7 期地图。请在云控客户端选择对应地图 id，进入关卡后再点开始。</p>
+<p class="tip">仅第 7 期。请在云控客户端选择对应地图 id，进入关卡后再点开始。</p>
 <div class="grid">{body}</div>
 </body></html>"""
     return HTMLResponse(html)
