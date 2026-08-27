@@ -227,6 +227,15 @@ class ProxyAdb:
                 raise RuntimeError(self._error or "会话已结束")
             self._pending.append({"op": "tap", "x": x, "y": y})
 
+    def queue_sleep(self, seconds: float) -> None:
+        """仅入队 sleep，不 flush；与后续 tap/sleep 合并成一批下发。"""
+        ms = max(0, int(float(seconds) * 1000))
+        with self._cv:
+            if self._closed:
+                raise RuntimeError(self._error or "会话已结束")
+            if ms > 0:
+                self._pending.append({"op": "sleep", "ms": ms})
+
     def swipe(
         self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300
     ) -> None:

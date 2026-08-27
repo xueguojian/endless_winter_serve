@@ -9,7 +9,7 @@ from typing import Any, Callable
 from loguru import logger
 
 from core.adb_client import AdbClient
-from core.dream_memory.config import DreamMemoryConfig, _build_config
+from core.dream_memory.config import DreamMemoryConfig, _build_config, sample_tap_between_delay
 from core.dream_memory.maps import DreamMemoryMap, load_map
 from core.dream_memory.ocr_engine import ocr_engine_available, resolve_ocr_engine, warmup_ocr
 from core.dream_memory.vision import TargetChip, read_target_chips, resolve_item_coord
@@ -28,7 +28,7 @@ def _format_chip_slot(chip: TargetChip) -> str:
         return f"槽{n}:{chip.text}"
     if chip.ocr_raw:
         return f"槽{n}:OCR「{chip.ocr_raw}」未匹配"
-    return f"槽{n}:空"
+    return f"槽{n}:未识别"
 
 
 def _format_scan_line(chips: list[TargetChip]) -> str:
@@ -153,12 +153,19 @@ class DreamMemoryTask:
                 self._emit(f"{scan_line} → 本批 {len(taps)} 个: {labels}")
             else:
                 self._emit(f"本批 {len(taps)} 个: {labels}")
-            for text, x, y in taps:
+            queue_sleep = getattr(self.adb, "queue_sleep", None)
+            for index, (text, x, y) in enumerate(taps):
                 if self._interrupted():
                     break
                 self.adb.tap(x, y)
-                time.sleep(max(0.05, float(self.config.tap_between_delay)))
-            time.sleep(max(0.1, float(self.config.tap_delay)))
+                if index < len(taps) - 1:
+                    gap = sample_tap_between_delay(self.config)
+                    if queue_sleep is not None:
+                        queue_sleep(gap)
+                    else:
+                        time.sleep(max(0.05, gap))
+            # 一批 tap 合并一次下发，避免每个点击单独 HTTP 往返导致中间漏点
+            self.adb.sleep(max(0.1, float(self.config.tap_delay)))
 
         self._emit("已结束")
         return True

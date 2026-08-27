@@ -266,6 +266,37 @@ def _tesseract_ascii_fallback(
     return None
 
 
+def _tesseract_cjk_fallback(
+    chip_bgr: np.ndarray,
+    candidates: tuple[str, ...] | list[str],
+) -> str | None:
+    """RapidOCR 对单汉字（弩/锁等）常空识，用 Tesseract chi_sim 补识。"""
+    cjk_keys = [k for k in candidates if len(k) == 1 and _script_kind(k) == "cjk"]
+    if not cjk_keys:
+        return None
+    from core.dream_memory.config import DEFAULT_TESSERACT_CMD
+    from core.dream_memory.ocr import ocr_chip, tesseract_available
+
+    if not tesseract_available(DEFAULT_TESSERACT_CMD):
+        return None
+    whitelist = "".join(dict.fromkeys(cjk_keys))
+    try:
+        text = ocr_chip(
+            chip_bgr,
+            tesseract_cmd=DEFAULT_TESSERACT_CMD,
+            lang="chi_sim",
+            whitelist=whitelist,
+        )
+    except (FileNotFoundError, RuntimeError):
+        return None
+    if not text:
+        return None
+    cand_set = set(candidates)
+    if text in cand_set:
+        return text
+    alias = apply_ocr_aliases(text, candidates)
+    return alias if alias in cand_set else None
+
 
 def resolve_chip_label(
     chip_bgr: np.ndarray,
@@ -338,6 +369,12 @@ def resolve_chip_label(
             tess = _tesseract_ascii_fallback(chip_bgr, tess_pool)
             if tess and tess in keys_set:
                 return tess, f"tesseract_ascii({raw!r}->{tess})"
+        if not raw or (len(raw) == 1 and _script_kind(raw) == "cjk"):
+            cjk_keys = tuple(k for k in single_keys if _script_kind(k) == "cjk")
+            if cjk_keys:
+                tess = _tesseract_cjk_fallback(chip_bgr, cjk_keys)
+                if tess and tess in keys_set:
+                    return tess, f"tesseract_cjk({raw!r}->{tess})"
 
     if chip_bgr.size > 0:
         root = refs_dir or CHIP_REFS_DIR
