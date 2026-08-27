@@ -32,7 +32,12 @@ DEFAULT_OCR_ALIASES: dict[str, str] = {
     "電口哨": "口哨",
     "电口哨": "口哨",
     "口哨電": "口哨",
-}
+
+    # 单数字「2」：中文模型常识成乙/二（勿把 Z→2，车间同图有 F）
+    "乙": "2",
+    "贰": "2",
+    "二": "2",
+    "貳": "2",}
 
 # 同图并存时需视觉/多路 OCR 消歧（不能单靠 OCR 字面）
 CONFUSABLE_GROUPS: tuple[frozenset[str], ...] = (
@@ -218,7 +223,7 @@ def _tesseract_ascii_fallback(
     chip_bgr: np.ndarray,
     candidates: tuple[str, ...] | list[str],
 ) -> str | None:
-    """RapidOCR 对单字母常返回空，用 Tesseract eng 补识。"""
+    """RapidOCR 对单字母/数字常空识或误识，用 Tesseract eng + 白名单补识。"""
     ascii_keys = [k for k in candidates if len(k) == 1 and _script_kind(k) == "ascii"]
     if not ascii_keys:
         return None
@@ -227,20 +232,39 @@ def _tesseract_ascii_fallback(
 
     if not tesseract_available(DEFAULT_TESSERACT_CMD):
         return None
-    try:
-        text = ocr_chip(chip_bgr, tesseract_cmd=DEFAULT_TESSERACT_CMD, lang="eng")
-    except (FileNotFoundError, RuntimeError):
-        return None
-    if not text:
-        return None
+
+    digit_keys = [k for k in ascii_keys if k.isdigit()]
+    letter_keys = [k for k in ascii_keys if k.isalpha()]
+    attempts: list[str | None] = []
+    if digit_keys:
+        attempts.append("".join(sorted(set(digit_keys))))
+    if letter_keys or digit_keys:
+        attempts.append("".join(sorted(set(letter_keys + digit_keys))))
+    attempts.append(None)
+
     cand_set = set(candidates)
-    if text in cand_set:
-        return text
-    text = _normalize_ascii_case(text, cand_set)
-    if text in cand_set:
-        return text
-    alias = apply_ocr_aliases(text, candidates)
-    return alias if alias in cand_set else None
+    for whitelist in attempts:
+        try:
+            text = ocr_chip(
+                chip_bgr,
+                tesseract_cmd=DEFAULT_TESSERACT_CMD,
+                lang="eng",
+                whitelist=whitelist,
+            )
+        except (FileNotFoundError, RuntimeError):
+            return None
+        if not text:
+            continue
+        if text in cand_set:
+            return text
+        text = _normalize_ascii_case(text, cand_set)
+        if text in cand_set:
+            return text
+        alias = apply_ocr_aliases(text, candidates)
+        if alias in cand_set:
+            return alias
+    return None
+
 
 
 def resolve_chip_label(
@@ -303,8 +327,15 @@ def resolve_chip_label(
         voted = _ocr_vote_among(chip_bgr, single_keys)
         if voted and voted in keys_set:
             return voted, f"short_vote({raw!r}->{voted})"
-        if not raw and any(_script_kind(k) == "ascii" for k in single_keys):
-            tess = _tesseract_ascii_fallback(chip_bgr, single_keys)
+        # 空串或误识（Z/乙 等）都走 Tesseract；疑似数字时优先数字白名单
+        if any(_script_kind(k) == "ascii" for k in single_keys):
+            digit_keys = tuple(k for k in single_keys if k.isdigit())
+            # 仅当 OCR 已像数字/乙二 时才收窄到数字白名单；空串保留字母+数字，避免 F 误成 2
+            digit_hints = {"乙", "二", "贰", "貳"}
+            tess_pool: tuple[str, ...] = single_keys
+            if digit_keys and (raw.isdigit() or raw in digit_hints):
+                tess_pool = digit_keys
+            tess = _tesseract_ascii_fallback(chip_bgr, tess_pool)
             if tess and tess in keys_set:
                 return tess, f"tesseract_ascii({raw!r}->{tess})"
 

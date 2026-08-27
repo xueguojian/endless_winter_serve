@@ -55,8 +55,22 @@ def normalize_item_name_for_match(text: str) -> str:
     return clean_ocr_text(text)
 
 
+def _to_halfwidth(text: str) -> str:
+    """全角 ASCII/数字 -> 半角，避免 OCR 返回「２」被清洗成空串。"""
+    out: list[str] = []
+    for ch in text:
+        code = ord(ch)
+        if 0xFF01 <= code <= 0xFF5E:
+            out.append(chr(code - 0xFEE0))
+        elif ch == "　":
+            out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def clean_ocr_text(raw: str, *, keep_brackets: bool = False) -> str:
-    text = raw.replace("\n", "").replace(" ", "").strip()
+    text = _to_halfwidth((raw or "").replace("\n", "").replace(" ", "").strip())
     if keep_brackets:
         text = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9\[\]【】〔〕［］「」『』]", "", text)
     else:
@@ -70,6 +84,7 @@ def ocr_chip(
     tesseract_cmd: Path | str | None = None,
     lang: str = "chi_sim",
     keep_brackets: bool = False,
+    whitelist: str | None = None,
 ) -> str:
     if pytesseract is None:
         raise RuntimeError("pytesseract 未安装")
@@ -81,10 +96,15 @@ def ocr_chip(
         return ""
 
     try:
+        config = "--psm 7 -c preserve_interword_spaces=0"
+        if whitelist:
+            safe = "".join(ch for ch in whitelist if ch.isalnum())
+            if safe:
+                config += f" -c tessedit_char_whitelist={safe}"
         raw = pytesseract.image_to_string(
             processed,
             lang=lang,
-            config="--psm 7 -c preserve_interword_spaces=0",
+            config=config,
         )
     except pytesseract.TesseractNotFoundError as exc:
         raise FileNotFoundError(
