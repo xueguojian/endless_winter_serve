@@ -25,6 +25,8 @@ class TargetChip:
     text: str
     active: bool
     roi: tuple[int, int, int, int]
+    ocr_raw: str = ""
+    method: str = ""
 
 
 def _crop(screen: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
@@ -357,7 +359,7 @@ def read_target_chips(
             from core.dream_memory.ocr_rapid import ocr_chip_rapid_robust, ocr_slots_batch
 
             keys_set = set(map_keys)
-            batch_labels = [("", "")] * len(patches)
+            batch_labels = [("", "", "")] * len(patches)
             active_indices = [i for i, ok in enumerate(actives[:slot_limit]) if ok]
             active_patches = [patches[i] for i in active_indices]
             batch_texts = ocr_slots_batch(active_patches)
@@ -381,7 +383,7 @@ def read_target_chips(
                 )
                 if pk_mode and name not in keys_set:
                     name, method = "", ""
-                batch_labels[slot_index] = (name, method)
+                batch_labels[slot_index] = (name, method, ocr_text)
 
     for index, roi in enumerate(slots):
         if pk_mode and index >= slot_limit:
@@ -389,9 +391,11 @@ def read_target_chips(
         patch = patches[index]
         active = actives[index]
         text = ""
+        ocr_raw = ""
+        method = ""
         if active:
             if batch_labels is not None:
-                text, method = batch_labels[index]
+                text, method, ocr_raw = batch_labels[index]
                 if text and method:
                     logger.debug(f"槽位 {index + 1} {method} -> {text!r}")
             elif map_keys:
@@ -416,6 +420,7 @@ def read_target_chips(
                         engine=ocr_engine,
                         tesseract_cmd=tesseract_cmd,
                     )
+                    ocr_raw = text
                 except (FileNotFoundError, RuntimeError) as exc:
                     logger.warning(f"OCR 失败 slot={index}: {exc}")
         if pk_mode:
@@ -426,6 +431,8 @@ def read_target_chips(
                 text=text,
                 active=active,
                 roi=roi,
+                ocr_raw=ocr_raw,
+                method=method,
             )
         )
     if pk_mode:

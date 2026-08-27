@@ -12,9 +12,29 @@ from core.adb_client import AdbClient
 from core.dream_memory.config import DreamMemoryConfig, _build_config
 from core.dream_memory.maps import DreamMemoryMap, load_map
 from core.dream_memory.ocr_engine import ocr_engine_available, resolve_ocr_engine, warmup_ocr
-from core.dream_memory.vision import read_target_chips, resolve_item_coord
+from core.dream_memory.vision import TargetChip, read_target_chips, resolve_item_coord
 
 StatusCallback = Callable[[str], None]
+
+
+def _format_chip_slot(chip: TargetChip) -> str:
+    """单槽识别摘要，供云控状态栏展示。"""
+    n = chip.slot_index + 1
+    if not chip.active:
+        return f"槽{n}:—"
+    if chip.text:
+        if chip.ocr_raw and chip.ocr_raw != chip.text:
+            return f"槽{n}:{chip.ocr_raw}→{chip.text}"
+        return f"槽{n}:{chip.text}"
+    if chip.ocr_raw:
+        return f"槽{n}:OCR「{chip.ocr_raw}」未匹配"
+    return f"槽{n}:空"
+
+
+def _format_scan_line(chips: list[TargetChip]) -> str:
+    if not chips:
+        return ""
+    return "识别 " + " ".join(_format_chip_slot(chip) for chip in chips)
 
 
 class DreamMemoryTask:
@@ -117,14 +137,22 @@ class DreamMemoryTask:
 
             if not taps:
                 empty_rounds += 1
+                scan_line = _format_scan_line(chips)
                 if empty_rounds == 1 or empty_rounds % 20 == 0:
-                    self._emit("未识别到可点目标，等待中…")
+                    if scan_line and any(chip.active for chip in chips):
+                        self._emit(f"{scan_line}，等待中…")
+                    else:
+                        self._emit("未识别到可点目标，等待中…")
                 time.sleep(max(0.15, float(self.config.scan_interval)))
                 continue
 
             empty_rounds = 0
+            scan_line = _format_scan_line(chips)
             labels = "、".join(text for text, _, _ in taps)
-            self._emit(f"本批 {len(taps)} 个: {labels}")
+            if scan_line:
+                self._emit(f"{scan_line} → 本批 {len(taps)} 个: {labels}")
+            else:
+                self._emit(f"本批 {len(taps)} 个: {labels}")
             for text, x, y in taps:
                 if self._interrupted():
                     break
