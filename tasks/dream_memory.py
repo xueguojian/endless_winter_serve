@@ -161,18 +161,6 @@ class DreamMemoryTask:
                     queue_sleep(gap)
         self.adb.sleep(max(0.1, float(self.config.tap_delay)))
 
-    def _failed_items(
-        self,
-        screen: np.ndarray,
-        batch: list[_TapItem],
-        before_means: dict[int, float],
-    ) -> list[_TapItem]:
-        return [
-            item
-            for item in batch
-            if not self._slot_hit(screen, item.slot_index, before_means[item.slot_index])
-        ]
-
     def _wait_bar_refresh(
         self,
         batch: list[_TapItem],
@@ -204,30 +192,8 @@ class DreamMemoryTask:
         logger.debug("等待底栏刷新超时，继续下一轮")
 
     def _click_batch(self, batch: list[_TapItem], before_means: dict[int, float]) -> None:
-        """一批连点 → 一次截图确认 → 仅对漏项补点一轮（最多多 2 次 HTTP）。"""
+        """一批连点后等底栏刷新；不做点后截图校验/补点（云控往返太慢）。"""
         self._enqueue_taps(batch)
-        try:
-            screen = self.adb.screenshot()
-        except Exception as exc:
-            logger.warning("批次点击后截图失败: {}", exc)
-            self._wait_bar_refresh(batch, before_means)
-            return
-
-        failed = self._failed_items(screen, batch, before_means)
-        if failed:
-            labels = "、".join(item.text for item in failed)
-            self._emit(f"补点 {len(failed)} 个: {labels}")
-            self._enqueue_taps(failed)
-            try:
-                screen2 = self.adb.screenshot()
-                still = self._failed_items(screen2, failed, before_means)
-                for item in still:
-                    self._emit(
-                        f"「{item.text}」仍未确认 @ ({item.x},{item.y})，请复查标定"
-                    )
-            except Exception as exc:
-                logger.warning("补点后截图失败: {}", exc)
-
         self._wait_bar_refresh(batch, before_means)
 
     def run_once(self, *, force: bool = False) -> bool:

@@ -89,7 +89,7 @@ class DreamMemoryConfig:
     tesseract_cmd: Path = field(default_factory=lambda: DEFAULT_TESSERACT_CMD)
     selected_map: str = ""
     selected_period: int = CURRENT_MAP_PERIOD
-    tap_delay: float = 0.5
+    tap_delay: float = 0.25
     tap_between_delay: float = 0.35
     tap_between_delay_min: float = 0.35
     tap_between_delay_max: float = 0.35
@@ -116,7 +116,7 @@ class DreamMemoryConfig:
     misclick_radius_x: int = 90
     misclick_radius_y: int = 120
     pk_mode: bool = False
-    bar_refresh_min_wait: float = 0.4
+    bar_refresh_min_wait: float = 0.15
     bar_refresh_poll: float = 0.08
     bar_refresh_timeout: float = 2.5
     bar_change_mean_delta: float = 8.0
@@ -192,7 +192,7 @@ def _build_config(raw: dict, *, pk: bool) -> DreamMemoryConfig:
             tap_between_delay_mode=0.35,
             tap_between_interval=TAP_INTERVAL_FIXED,
             scan_interval=0.3,
-            bar_refresh_min_wait=0.4,
+            bar_refresh_min_wait=0.15,
             bar_refresh_poll=0.08,
             bar_refresh_timeout=2.5,
         )
@@ -209,7 +209,7 @@ def _build_config(raw: dict, *, pk: bool) -> DreamMemoryConfig:
         tesseract_cmd=Path(str(tesseract_raw)),
         selected_map=str(raw.get("selected_map") or ""),
         selected_period=_parse_period(raw.get("selected_period")),
-        tap_delay=float(raw.get("tap_delay", 0.5)),
+        tap_delay=float(raw.get("tap_delay", 0.25)),
         tap_between_delay=float(raw.get("tap_between_delay", timing["tap_between_delay"])),
         tap_between_delay_min=float(
             raw.get("tap_between_delay_min", timing["tap_between_delay_min"])
