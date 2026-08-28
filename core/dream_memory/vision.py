@@ -125,10 +125,10 @@ def recognize_chip_label(
     fuzzy_min_ratio: float = 0.72,
     map_aliases: dict[str, str] | None = None,
     strict: bool = False,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """识别槽位文字，strict 时仅精确/别名/OCR 纠错命中地图名。"""
     if chip_bgr.size == 0:
-        return "", ""
+        return "", "", ""
 
     ocr_text = ""
 
@@ -150,7 +150,7 @@ def recognize_chip_label(
 
     from core.dream_memory.label_resolve import resolve_chip_label
 
-    return resolve_chip_label(
+    name, method = resolve_chip_label(
         chip_bgr,
         ocr_text,
         map_keys,
@@ -161,6 +161,7 @@ def recognize_chip_label(
         template_min_margin=min(template_min_margin, 0.05),
         strict=strict,
     )
+    return name, method, ocr_text
 
 
 def split_bar_into_slots(
@@ -350,7 +351,7 @@ def read_target_chips(
         for patch in patches:
             actives.append(chip_is_active(patch, min_brightness=min_brightness))
 
-    batch_labels: list[tuple[str, str]] | None = None
+    batch_labels: list[tuple[str, str, str]] | None = None
     if map_keys:
         from core.dream_memory.ocr_engine import resolve_ocr_engine
 
@@ -399,7 +400,7 @@ def read_target_chips(
                 if text and method:
                     logger.debug(f"槽位 {index + 1} {method} -> {text!r}")
             elif map_keys:
-                text, method = recognize_chip_label(
+                text, method, ocr_raw = recognize_chip_label(
                     patch,
                     map_keys,
                     ocr_engine=ocr_engine,
