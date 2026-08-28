@@ -16,10 +16,11 @@ PK_PREVIEWS_DIR = ROOT / "assets" / "dream_memory" / "previews_pk"
 CHIP_REFS_DIR = ROOT / "assets" / "dream_memory" / "chip_refs"
 
 # 720×1280 底栏三个目标按钮 ROI (x1, y1, x2, y2)
+# 槽3 与槽1/2 对齐纵边，并略加宽：云控 JPEG 下右侧长词（单筒望远镜）/单字（弩）易糊或被裁
 DEFAULT_TARGET_SLOTS: tuple[tuple[int, int, int, int], ...] = (
     (38, 1140, 248, 1194),
     (250, 1142, 462, 1196),
-    (468, 1136, 674, 1200),
+    (465, 1140, 698, 1196),
 )
 
 DEFAULT_TARGET_BAR: tuple[int, int, int, int] = (36, 1138, 688, 1194)

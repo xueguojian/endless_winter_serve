@@ -273,3 +273,7 @@ dream_memory:
   tap_between_delay_max: 0.2
   tap_between_delay_mode: 0.2
   tap_between_delay_interval: fixed
+  target_slots:
+    - [38, 1140, 248, 1194]
+    - [250, 1142, 462, 1196]
+    - [465, 1140, 698, 1196]

@@ -164,7 +164,9 @@ def ocr_slots_batch(
 
     t0 = time.perf_counter()
     engine = _get_rec_engine()
-    prepared = [_prepare_chip(patch, scale=scale) for patch in patches]
+    prepared = [
+        _prepare_chip(patch, scale=scale, pad_ratio=CHIP_PAD_RATIO) for patch in patches
+    ]
     texts: list[str] = []
     with _engine_lock:
         for image in prepared:

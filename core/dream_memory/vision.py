@@ -44,19 +44,16 @@ def chip_is_active(
     *,
     min_brightness: float = 95.0,
 ) -> bool:
-    """未找到的目标按钮较亮；已划线/变灰的跳过（普通模式）。
-
-    划线检测要够敏：否则 OCR 会把「太阳+横线」读成「未阳」再模糊成太阳，导致误重点。
-    """
+    """未找到的目标按钮较亮；已划线/变灰的跳过（普通模式）。"""
     if chip_bgr.size == 0:
         return False
     gray = cv2.cvtColor(chip_bgr, cv2.COLOR_BGR2GRAY)
-    chip_mean = float(gray.mean())
-    if chip_mean < min_brightness:
+    if float(gray.mean()) < min_brightness:
         return False
 
-    h, w = gray.shape[:2]
-    if h >= 12 and w >= 8:
+    # 检测中间横线（删除线）：中间带比上下带更暗
+    h = gray.shape[0]
+    if h >= 12:
         band = max(2, h // 5)
         mid_y = h // 2
         mid = gray[mid_y - band : mid_y + band, :]
@@ -65,29 +62,11 @@ def chip_is_active(
         if top.size and bottom.size and mid.size:
             mid_mean = float(mid.mean())
             surround = float(np.mean([top.mean(), bottom.mean()]))
-            # 阈值从 12 降到 7：浅色删除线也能判掉
-            if mid_mean + 7.0 < surround:
+            if mid_mean + 12 < surround:
                 logger.debug(
-                    f"chip 中间横线 mid={mid_mean:.1f} surround={surround:.1f}"
+                    f"chip 中间横线检测 mid={mid_mean:.1f} surround={surround:.1f}"
                 )
                 return False
-
-        # 中部最暗行：删除线常表现为一行明显更黑且横向拉长
-        y0, y1 = int(h * 0.28), max(int(h * 0.28) + 1, int(h * 0.72))
-        row_means = gray[y0:y1].mean(axis=1)
-        if row_means.size:
-            dark_rel = int(row_means.argmin())
-            dark_y = y0 + dark_rel
-            darkest = float(row_means[dark_rel])
-            if darkest + 16.0 < chip_mean:
-                row = gray[dark_y]
-                dark_ratio = float((row < (darkest + 12.0)).mean())
-                if dark_ratio >= 0.32:
-                    logger.debug(
-                        f"chip 删除线行 y={dark_y} darkest={darkest:.1f} "
-                        f"mean={chip_mean:.1f} ratio={dark_ratio:.2f}"
-                    )
-                    return False
     return True
 
 
@@ -146,10 +125,10 @@ def recognize_chip_label(
     fuzzy_min_ratio: float = 0.72,
     map_aliases: dict[str, str] | None = None,
     strict: bool = False,
-) -> tuple[str, str, str]:
+) -> tuple[str, str]:
     """识别槽位文字，strict 时仅精确/别名/OCR 纠错命中地图名。"""
     if chip_bgr.size == 0:
-        return "", "", ""
+        return "", ""
 
     ocr_text = ""
 
@@ -171,7 +150,7 @@ def recognize_chip_label(
 
     from core.dream_memory.label_resolve import resolve_chip_label
 
-    name, method = resolve_chip_label(
+    return resolve_chip_label(
         chip_bgr,
         ocr_text,
         map_keys,
@@ -182,7 +161,6 @@ def recognize_chip_label(
         template_min_margin=min(template_min_margin, 0.05),
         strict=strict,
     )
-    return name, method, ocr_text
 
 
 def split_bar_into_slots(
@@ -372,7 +350,7 @@ def read_target_chips(
         for patch in patches:
             actives.append(chip_is_active(patch, min_brightness=min_brightness))
 
-    batch_labels: list[tuple[str, str, str]] | None = None
+    batch_labels: list[tuple[str, str]] | None = None
     if map_keys:
         from core.dream_memory.ocr_engine import resolve_ocr_engine
 
@@ -421,7 +399,7 @@ def read_target_chips(
                 if text and method:
                     logger.debug(f"槽位 {index + 1} {method} -> {text!r}")
             elif map_keys:
-                text, method, ocr_raw = recognize_chip_label(
+                text, method = recognize_chip_label(
                     patch,
                     map_keys,
                     ocr_engine=ocr_engine,
