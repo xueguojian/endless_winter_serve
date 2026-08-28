@@ -20,8 +20,11 @@ def tesseract_available(tesseract_cmd: Path | str | None = None) -> bool:
     if pytesseract is None:
         return False
     cmd = Path(str(tesseract_cmd)) if tesseract_cmd else None
-    if cmd and cmd.is_file():
-        return True
+    # 仅当配置里的可执行文件真实存在时才启用。
+    # 云端 Linux 若只靠 PATH 里的 tesseract，每个空串/单字未匹配都会跑 eng/chi_sim，
+    # 单次 /tick 轻松到 3s+；未装之前这些兜底是空操作，所以“一装就变慢”。
+    if cmd is not None:
+        return cmd.is_file()
     return shutil.which("tesseract") is not None
 
 
