@@ -14,7 +14,12 @@ from core.adb_client import AdbClient
 from core.dream_memory.config import DreamMemoryConfig, _build_config, sample_tap_between_delay
 from core.dream_memory.maps import DreamMemoryMap, load_map
 from core.dream_memory.ocr_engine import ocr_engine_available, resolve_ocr_engine, warmup_ocr
-from core.dream_memory.vision import TargetChip, chip_is_active, read_target_chips, resolve_item_coord
+from core.dream_memory.vision import (
+    TargetChip,
+    chip_is_active,
+    read_target_chips,
+    resolve_item_coord,
+)
 
 StatusCallback = Callable[[str], None]
 
@@ -76,6 +81,8 @@ class DreamMemoryTask:
         self.on_status = on_status
         self._stop = threading.Event()
         self._unmatched_logged: set[str] = set()
+        # 验证确认已划掉的物品；漏点不记，下一轮可再点
+        self._done_keys: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop.set()
@@ -109,6 +116,9 @@ class DreamMemoryTask:
             dict.fromkeys((*self.game_map.items.keys(), *self.game_map.aliases.keys()))
         )
 
+    def _item_key(self, text: str) -> str:
+        return self.game_map.resolve_label(text) or text
+
     def _slots(self) -> tuple[tuple[int, int, int, int], ...]:
         return tuple(self.config.target_slots or ())
 
@@ -120,36 +130,20 @@ class DreamMemoryTask:
         h, w = screen.shape[:2]
         return screen[max(0, y1) : min(h, y2), max(0, x1) : min(w, x2)]
 
-    @staticmethod
-    def _patch_mean(patch: np.ndarray) -> float:
-        if patch.size == 0:
-            return 0.0
-        gray = patch.mean(axis=2) if patch.ndim == 3 else patch
-        return float(gray.mean())
-
-    def _slot_fingerprints(
-        self, screen: np.ndarray, batch: list[_TapItem]
-    ) -> dict[int, float]:
-        return {
-            item.slot_index: self._patch_mean(self._slot_patch(screen, item.slot_index))
-            for item in batch
-        }
-
-    def _slot_hit(self, screen: np.ndarray, slot_index: int, before_mean: float) -> bool:
-        """该槽是否已划掉或亮度明显变化（视为点击生效）。"""
-        patch = self._slot_patch(screen, slot_index)
-        if patch.size == 0:
+    def _already_done(self, text: str) -> bool:
+        key = self._item_key(text)
+        ts = self._done_keys.get(key)
+        if ts is None:
             return False
-        if not chip_is_active(
-            patch,
-            min_brightness=self.config.chip_active_min_brightness,
-        ):
-            return True
-        delta = abs(self._patch_mean(patch) - before_mean)
-        return delta >= float(self.config.bar_change_mean_delta)
+        return (time.time() - ts) < 2.5
+
+    def _mark_done(self, items: list[_TapItem]) -> None:
+        now = time.time()
+        for item in items:
+            self._done_keys[self._item_key(item.text)] = now
 
     def _enqueue_taps(self, items: list[_TapItem]) -> None:
-        """一批 tap 合并一次下发（单次 HTTP 往返）。"""
+        """一批 tap 一次下发；点间用配置间隔（默认 0.2s）。"""
         queue_sleep = getattr(self.adb, "queue_sleep", None)
         for index, item in enumerate(items):
             if self._interrupted():
@@ -159,42 +153,44 @@ class DreamMemoryTask:
                 gap = sample_tap_between_delay(self.config)
                 if queue_sleep is not None:
                     queue_sleep(gap)
-        self.adb.sleep(max(0.1, float(self.config.tap_delay)))
+                else:
+                    time.sleep(gap)
+        self.adb.sleep(max(0.08, float(self.config.tap_delay)))
 
-    def _wait_bar_refresh(
-        self,
-        batch: list[_TapItem],
-        before_means: dict[int, float],
-    ) -> None:
-        """点完一批后等底栏刷新，避免下一轮 OCR 仍读到同一批。"""
-        if not batch:
-            return
-        floor = max(0.12, float(self.config.bar_refresh_min_wait))
-        time.sleep(floor)
-        deadline = time.time() + float(self.config.bar_refresh_timeout)
-        poll = max(0.08, float(self.config.bar_refresh_poll))
-        while time.time() < deadline:
-            if self._interrupted():
-                return
-            try:
-                screen = self.adb.screenshot()
-            except Exception:
-                time.sleep(poll)
-                continue
-            cleared = 0
-            for item in batch:
-                if self._slot_hit(screen, item.slot_index, before_means[item.slot_index]):
-                    cleared += 1
-            if cleared > 0:
-                logger.debug("底栏已刷新 ({}/{})", cleared, len(batch))
-                return
-            time.sleep(poll)
-        logger.debug("等待底栏刷新超时，继续下一轮")
+    def _slot_cleared(self, screen: np.ndarray, slot_index: int) -> bool:
+        """点后槽位是否已划掉/变灰。"""
+        patch = self._slot_patch(screen, slot_index)
+        if patch.size == 0:
+            return False
+        return not chip_is_active(
+            patch,
+            min_brightness=self.config.chip_active_min_brightness,
+        )
 
-    def _click_batch(self, batch: list[_TapItem], before_means: dict[int, float]) -> None:
-        """一批连点后等底栏刷新；不做点后截图校验/补点（云控往返太慢）。"""
+    def _click_batch(self, batch: list[_TapItem]) -> None:
+        """连点 → 立刻截图验证；已中记冷却，漏点只日志、下轮再处理（本轮不补点）。"""
         self._enqueue_taps(batch)
-        self._wait_bar_refresh(batch, before_means)
+        try:
+            screen = self.adb.screenshot()
+        except Exception as exc:
+            logger.warning("点后验证截图失败: {}", exc)
+            return
+
+        hit: list[_TapItem] = []
+        miss: list[_TapItem] = []
+        for item in batch:
+            if self._slot_cleared(screen, item.slot_index):
+                hit.append(item)
+            else:
+                miss.append(item)
+
+        if hit:
+            self._mark_done(hit)
+        if miss:
+            labels = "、".join(item.text for item in miss)
+            self._emit(f"漏点 {len(miss)} 个: {labels}（下轮处理）")
+        elif hit:
+            logger.debug("本批全部确认划掉 ({})", len(hit))
 
     def run_once(self, *, force: bool = False) -> bool:
         _ = force
@@ -253,6 +249,9 @@ class DreamMemoryTask:
                 if coord is None:
                     self._warn_unmatched_map(chip.slot_index, raw or chip.text)
                     continue
+                if self._already_done(chip.text):
+                    logger.debug("跳过已确认划掉的「{}」", chip.text)
+                    continue
                 batch.append(
                     _TapItem(
                         chip.slot_index,
@@ -281,8 +280,7 @@ class DreamMemoryTask:
             else:
                 self._emit(f"本批 {len(batch)} 个: {labels}")
 
-            before_means = self._slot_fingerprints(screen, batch)
-            self._click_batch(batch, before_means)
+            self._click_batch(batch)
 
         self._emit("已结束")
         return True

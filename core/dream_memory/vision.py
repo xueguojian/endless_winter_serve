@@ -44,16 +44,19 @@ def chip_is_active(
     *,
     min_brightness: float = 95.0,
 ) -> bool:
-    """未找到的目标按钮较亮；已划线/变灰的跳过（普通模式）。"""
+    """未找到的目标按钮较亮；已划线/变灰的跳过（普通模式）。
+
+    划线检测要够敏：否则 OCR 会把「太阳+横线」读成「未阳」再模糊成太阳，导致误重点。
+    """
     if chip_bgr.size == 0:
         return False
     gray = cv2.cvtColor(chip_bgr, cv2.COLOR_BGR2GRAY)
-    if float(gray.mean()) < min_brightness:
+    chip_mean = float(gray.mean())
+    if chip_mean < min_brightness:
         return False
 
-    # 检测中间横线（删除线）：中间带比上下带更暗
-    h = gray.shape[0]
-    if h >= 12:
+    h, w = gray.shape[:2]
+    if h >= 12 and w >= 8:
         band = max(2, h // 5)
         mid_y = h // 2
         mid = gray[mid_y - band : mid_y + band, :]
@@ -62,11 +65,29 @@ def chip_is_active(
         if top.size and bottom.size and mid.size:
             mid_mean = float(mid.mean())
             surround = float(np.mean([top.mean(), bottom.mean()]))
-            if mid_mean + 12 < surround:
+            # 阈值从 12 降到 7：浅色删除线也能判掉
+            if mid_mean + 7.0 < surround:
                 logger.debug(
-                    f"chip 中间横线检测 mid={mid_mean:.1f} surround={surround:.1f}"
+                    f"chip 中间横线 mid={mid_mean:.1f} surround={surround:.1f}"
                 )
                 return False
+
+        # 中部最暗行：删除线常表现为一行明显更黑且横向拉长
+        y0, y1 = int(h * 0.28), max(int(h * 0.28) + 1, int(h * 0.72))
+        row_means = gray[y0:y1].mean(axis=1)
+        if row_means.size:
+            dark_rel = int(row_means.argmin())
+            dark_y = y0 + dark_rel
+            darkest = float(row_means[dark_rel])
+            if darkest + 16.0 < chip_mean:
+                row = gray[dark_y]
+                dark_ratio = float((row < (darkest + 12.0)).mean())
+                if dark_ratio >= 0.32:
+                    logger.debug(
+                        f"chip 删除线行 y={dark_y} darkest={darkest:.1f} "
+                        f"mean={chip_mean:.1f} ratio={dark_ratio:.2f}"
+                    )
+                    return False
     return True
 
 

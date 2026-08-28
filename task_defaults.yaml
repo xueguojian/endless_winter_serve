@@ -267,9 +267,9 @@ dream_memory:
   selected_period: 7
   selected_map: ""
   scan_interval: 0.3
-  tap_delay: 0.25
-  tap_between_delay: 0.35
-  tap_between_delay_min: 0.35
-  tap_between_delay_max: 0.35
-  tap_between_delay_mode: 0.35
+  tap_delay: 0.15
+  tap_between_delay: 0.2
+  tap_between_delay_min: 0.2
+  tap_between_delay_max: 0.2
+  tap_between_delay_mode: 0.2
   tap_between_delay_interval: fixed
