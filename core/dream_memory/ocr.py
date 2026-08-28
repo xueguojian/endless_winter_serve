@@ -85,6 +85,7 @@ def ocr_chip(
     lang: str = "chi_sim",
     keep_brackets: bool = False,
     whitelist: str | None = None,
+    psm: int = 7,
 ) -> str:
     if pytesseract is None:
         raise RuntimeError("pytesseract 未安装")
@@ -96,7 +97,7 @@ def ocr_chip(
         return ""
 
     try:
-        config = "--psm 7 -c preserve_interword_spaces=0"
+        config = f"--psm {int(psm)} -c preserve_interword_spaces=0"
         if whitelist:
             safe = "".join(ch for ch in whitelist if ch.isalnum())
             if safe:
