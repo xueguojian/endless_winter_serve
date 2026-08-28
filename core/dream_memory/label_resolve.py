@@ -219,11 +219,115 @@ def _normalize_ascii_case(text: str, keys_set: set[str]) -> str:
     return text
 
 
+_ASCII_CONFUSION = frozenset({"乙", "己", "已", "Ｚ", "ｚ", "Ｎ", "ｎ", "Ａ", "ａ"})
+
+
+def _looks_like_ascii_chip(raw: str) -> bool:
+    """是否值得做字母/数字补识（空串、ASCII、或常见误识）。中文实识结果不要走 eng。"""
+    if not raw:
+        return True
+    if len(raw) == 1 and _script_kind(raw) == "ascii":
+        return True
+    if raw.isdigit() or raw in _ASCII_CONFUSION:
+        return True
+    return False
+
+
+def _match_ascii_glyphs(
+    chip_bgr: np.ndarray,
+    candidates: tuple[str, ...] | list[str],
+    *,
+    min_score: float = 0.32,
+    min_margin: float = 0.05,
+) -> str | None:
+    """用矢量字/系统字体做单字母模板匹配（通常 <50ms），能命中则跳过 Tesseract。"""
+    ascii_keys = [
+        k for k in candidates if len(k) == 1 and _script_kind(k) == "ascii" and k.isalnum()
+    ]
+    if chip_bgr.size == 0 or not ascii_keys:
+        return None
+
+    probe = normalize_chip(chip_bgr)
+    th, tw = probe.shape[:2]
+    fonts = (cv2.FONT_HERSHEY_SIMPLEX, cv2.FONT_HERSHEY_DUPLEX)
+    scored: list[tuple[str, float]] = []
+
+    pil_fonts: list = []
+    try:
+        from PIL import ImageFont
+
+        for path in (
+            r"C:\Windows\Fonts\arialbd.ttf",
+            r"C:\Windows\Fonts\arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ):
+            try:
+                pil_fonts.append(ImageFont.truetype(path, size=max(28, th - 8)))
+                if len(pil_fonts) >= 2:
+                    break
+            except OSError:
+                continue
+    except Exception:
+        pil_fonts = []
+
+    for name in ascii_keys:
+        glyphs = {name, name.upper(), name.lower()} if name.isalpha() else {name}
+        best = 0.0
+        for glyph in glyphs:
+            for font in fonts:
+                for scale in (1.6, 2.0):
+                    canvas = np.zeros((th, tw), dtype=np.uint8)
+                    (gw, gh), baseline = cv2.getTextSize(glyph, font, scale, 3)
+                    if gw <= 0 or gh <= 0:
+                        continue
+                    x = max(0, (tw - gw) // 2)
+                    y = min(th - 1, max(gh, (th + gh) // 2 - baseline // 2))
+                    cv2.putText(canvas, glyph, (x, y), font, scale, 255, 3, cv2.LINE_AA)
+                    best = max(
+                        best,
+                        float(cv2.matchTemplate(probe, canvas, cv2.TM_CCOEFF_NORMED)[0, 0]),
+                    )
+            for pil_font in pil_fonts:
+                try:
+                    from PIL import Image, ImageDraw
+
+                    im = Image.new("L", (tw, th), 0)
+                    draw = ImageDraw.Draw(im)
+                    bbox = draw.textbbox((0, 0), glyph, font=pil_font)
+                    gw, gh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                    x = max(0, (tw - gw) // 2 - bbox[0])
+                    y = max(0, (th - gh) // 2 - bbox[1])
+                    draw.text((x, y), glyph, fill=255, font=pil_font)
+                    canvas = np.asarray(im)
+                    best = max(
+                        best,
+                        float(cv2.matchTemplate(probe, canvas, cv2.TM_CCOEFF_NORMED)[0, 0]),
+                    )
+                except Exception:
+                    continue
+            if best >= 0.72:
+                break
+        scored.append((name, best))
+
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[1], reverse=True)
+    best_name, best_score = scored[0]
+    second = scored[1][1] if len(scored) > 1 else 0.0
+    if best_score < min_score:
+        return None
+    if len(scored) > 1 and (best_score - second) < min_margin:
+        return None
+    logger.debug(f"ascii_glyph {best_name!r} score={best_score:.2f}")
+    return best_name
+
+
 def _tesseract_ascii_fallback(
     chip_bgr: np.ndarray,
     candidates: tuple[str, ...] | list[str],
 ) -> str | None:
-    """RapidOCR 对单字母/数字常空识或误识，用 Tesseract eng + 白名单补识。"""
+    """RapidOCR 对单字母/数字常空识或误识，用 Tesseract eng + 白名单补识（仅 1 次）。"""
     ascii_keys = [k for k in candidates if len(k) == 1 and _script_kind(k) == "ascii"]
     if not ascii_keys:
         return None
@@ -233,37 +337,32 @@ def _tesseract_ascii_fallback(
     if not tesseract_available(DEFAULT_TESSERACT_CMD):
         return None
 
-    digit_keys = [k for k in ascii_keys if k.isdigit()]
-    letter_keys = [k for k in ascii_keys if k.isalpha()]
-    attempts: list[str | None] = []
-    if digit_keys:
-        attempts.append("".join(sorted(set(digit_keys))))
-    if letter_keys or digit_keys:
-        attempts.append("".join(sorted(set(letter_keys + digit_keys))))
-    attempts.append(None)
-
+    whitelist = "".join(dict.fromkeys(ascii_keys))
+    # 大小写都放进白名单，便于 N/n、Z/z
+    for ch in list(whitelist):
+        if ch.isalpha():
+            whitelist += ch.upper() + ch.lower()
+    whitelist = "".join(dict.fromkeys(whitelist))
     cand_set = set(candidates)
-    for whitelist in attempts:
-        try:
-            text = ocr_chip(
-                chip_bgr,
-                tesseract_cmd=DEFAULT_TESSERACT_CMD,
-                lang="eng",
-                whitelist=whitelist,
-            )
-        except (FileNotFoundError, RuntimeError):
-            return None
-        if not text:
-            continue
-        if text in cand_set:
-            return text
-        text = _normalize_ascii_case(text, cand_set)
-        if text in cand_set:
-            return text
-        alias = apply_ocr_aliases(text, candidates)
-        if alias in cand_set:
-            return alias
-    return None
+    try:
+        text = ocr_chip(
+            chip_bgr,
+            tesseract_cmd=DEFAULT_TESSERACT_CMD,
+            lang="eng",
+            whitelist=whitelist,
+            psm=10,
+        )
+    except (FileNotFoundError, RuntimeError):
+        return None
+    if not text:
+        return None
+    if text in cand_set:
+        return text
+    text = _normalize_ascii_case(text, cand_set)
+    if text in cand_set:
+        return text
+    alias = apply_ocr_aliases(text, candidates)
+    return alias if alias in cand_set else None
 
 
 def _tesseract_cjk_fallback(
@@ -354,27 +453,29 @@ def resolve_chip_label(
     single_keys = tuple(
         k for k in map_keys if len(k) == 1 and _script_kind(k) in ("ascii", "cjk")
     )
-    if (not raw or (len(raw) == 1 and _script_kind(raw) in ("ascii", "cjk"))) and single_keys:
-        voted = _ocr_vote_among(chip_bgr, single_keys)
-        if voted and voted in keys_set:
-            return voted, f"short_vote({raw!r}->{voted})"
-        # 空串或误识（Z/乙 等）都走 Tesseract；疑似数字时优先数字白名单
-        if any(_script_kind(k) == "ascii" for k in single_keys):
-            digit_keys = tuple(k for k in single_keys if k.isdigit())
-            # 仅当 OCR 已像数字/乙二 时才收窄到数字白名单；空串保留字母+数字，避免 F 误成 2
-            digit_hints = {"乙", "二", "贰", "貳"}
-            tess_pool: tuple[str, ...] = single_keys
-            if digit_keys and (raw.isdigit() or raw in digit_hints):
-                tess_pool = digit_keys
-            tess = _tesseract_ascii_fallback(chip_bgr, tess_pool)
-            if tess and tess in keys_set:
-                return tess, f"tesseract_ascii({raw!r}->{tess})"
-        if not raw or (len(raw) == 1 and _script_kind(raw) == "cjk"):
-            cjk_keys = tuple(k for k in single_keys if _script_kind(k) == "cjk")
-            if cjk_keys:
-                tess = _tesseract_cjk_fallback(chip_bgr, cjk_keys)
-                if tess and tess in keys_set:
-                    return tess, f"tesseract_cjk({raw!r}->{tess})"
+    ascii_singles = tuple(k for k in single_keys if _script_kind(k) == "ascii")
+    cjk_singles = tuple(k for k in single_keys if _script_kind(k) == "cjk")
+
+    # 单字母/数字：先毫秒级字形匹配，避免每个中文误识都拖进 Tesseract
+    if ascii_singles and _looks_like_ascii_chip(raw):
+        glyph = _match_ascii_glyphs(chip_bgr, ascii_singles)
+        if glyph and glyph in keys_set:
+            return glyph, f"ascii_glyph({raw!r}->{glyph})"
+        # 不再做 4 路 RapidOCR 投票（几乎和 Tesseract 一样慢）；直接一次 eng 兜底
+        digit_keys = tuple(k for k in ascii_singles if k.isdigit())
+        digit_hints = {"乙", "二", "贰", "貳"}
+        tess_pool: tuple[str, ...] = ascii_singles
+        if digit_keys and (raw.isdigit() or raw in digit_hints):
+            tess_pool = digit_keys
+        tess = _tesseract_ascii_fallback(chip_bgr, tess_pool)
+        if tess and tess in keys_set:
+            return tess, f"tesseract_ascii({raw!r}->{tess})"
+
+    # 单汉字（弩等）：仅 RapidOCR 空串时才用 chi_sim，避免「盆」等误识再跑一遍慢 OCR
+    if cjk_singles and not raw:
+        tess = _tesseract_cjk_fallback(chip_bgr, cjk_singles)
+        if tess and tess in keys_set:
+            return tess, f"tesseract_cjk({raw!r}->{tess})"
 
     if chip_bgr.size > 0:
         root = refs_dir or CHIP_REFS_DIR
