@@ -109,7 +109,11 @@ class DreamMemoryTask:
         )
 
     def _click_batch(self, batch: list[_TapItem]) -> None:
-        """一批连点（一次下发）；不做点后校验。已划线的由下一轮 OCR 自然跳过。"""
+        """一批连点（一次下发）；不做点后校验。已划线的由下一轮 OCR 自然跳过。
+
+        点后停顿只入队、不单独 flush：与下一轮 screenshot 合并下发，
+        让客户端「点完 → sleep → 再截图」，避免截到上一批未刷新的底栏。
+        """
         queue_sleep = getattr(self.adb, "queue_sleep", None)
         for index, item in enumerate(batch):
             if self._interrupted():
@@ -121,7 +125,12 @@ class DreamMemoryTask:
                     queue_sleep(gap)
                 else:
                     time.sleep(gap)
-        self.adb.sleep(max(0.08, float(self.config.tap_delay)))
+        # 整批点完后再等一会儿，给游戏划线/换目标的时间
+        settle = max(0.35, float(self.config.tap_delay))
+        if queue_sleep is not None:
+            queue_sleep(settle)
+        else:
+            time.sleep(settle)
 
     def run_once(self, *, force: bool = False) -> bool:
         _ = force
