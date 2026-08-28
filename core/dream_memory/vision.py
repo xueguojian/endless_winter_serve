@@ -355,7 +355,8 @@ def read_target_chips(
         from core.dream_memory.ocr_engine import resolve_ocr_engine
 
         if resolve_ocr_engine(ocr_engine) == "rapidocr" and sum(actives) >= 1:
-            from core.dream_memory.label_resolve import resolve_chip_label
+            from core.dream_memory.chip_match import fuzzy_match_map_key
+            from core.dream_memory.label_resolve import apply_ocr_aliases, resolve_chip_label
             from core.dream_memory.ocr_rapid import ocr_chip_rapid_robust, ocr_slots_batch
 
             keys_set = set(map_keys)
@@ -365,11 +366,25 @@ def read_target_chips(
             batch_texts = ocr_slots_batch(active_patches)
             for slot_index, raw_text in zip(active_indices, batch_texts):
                 ocr_text = raw_text or ""
-                # 空结果或未命中地图名时再复识（加边距/高倍率），避免只认出首字就停
+                # 空结果或未命中地图名：优先别名/模糊（便宜）；只有仍无解才高倍率复识
                 if (not ocr_text) or (ocr_text not in keys_set):
-                    retried = ocr_chip_rapid_robust(patches[slot_index], map_keys)
-                    if retried:
-                        ocr_text = retried
+                    need_robust = True
+                    if ocr_text:
+                        aliased = apply_ocr_aliases(ocr_text, map_keys, map_aliases)
+                        if aliased in keys_set:
+                            need_robust = False
+                        else:
+                            fuzzy = fuzzy_match_map_key(
+                                ocr_text,
+                                map_keys,
+                                min_ratio=fuzzy_min_ratio,
+                            )
+                            if fuzzy and fuzzy[0] in keys_set:
+                                need_robust = False
+                    if need_robust:
+                        retried = ocr_chip_rapid_robust(patches[slot_index], map_keys)
+                        if retried:
+                            ocr_text = retried
                 name, method = resolve_chip_label(
                     patches[slot_index],
                     ocr_text,
