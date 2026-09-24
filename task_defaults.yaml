@@ -264,10 +264,11 @@ auto_tile_match:
   - 712
   - 1122
 dream_memory:
-  selected_period: 7
+  selected_period: 8
   selected_map: ""
   scan_interval: 0.3
-  tap_delay: 0.15
+  # 本批点完后等待再截图（秒）；云控太短易截到旧底栏
+  tap_delay: 0.5
   tap_between_delay: 0.2
   tap_between_delay_min: 0.2
   tap_between_delay_max: 0.2

@@ -318,9 +318,9 @@ def dream_memory_catalog(
     from core.dream_memory.maps import format_period_choice, list_maps
 
     base = str(request.base_url).rstrip("/") if request is not None else ""
-    # 云控可视/选图只开放当前活动期（第 7 期）
+    # 云控可视/选图只开放当前活动期（第 8 期）
     periods = [CURRENT_MAP_PERIOD]
-    # 若磁盘上尚无第 7 期 yaml，仍返回当期空列表，避免误选旧期
+    # 若磁盘上尚无当期 yaml，仍返回当期空列表，避免误选旧期
     query_period = int(period) if period is not None else CURRENT_MAP_PERIOD
     if query_period != CURRENT_MAP_PERIOD:
         query_period = CURRENT_MAP_PERIOD
@@ -358,7 +358,7 @@ def dream_memory_preview(map_id: str) -> FileResponse:
 def dream_memory_maps_page(
     period: int | None = Query(default=None),
 ) -> HTMLResponse:
-    """给用户看的地图一览页（名称+预览图），云控里用链接打开。只展示第 7 期。"""
+    """给用户看的地图一览页（名称+预览图），云控里用链接打开。只展示当前活动期。"""
     from core.dream_memory.config import CURRENT_MAP_PERIOD
     from core.dream_memory.maps import format_period_choice, list_maps
 
@@ -384,12 +384,17 @@ def dream_memory_maps_page(
             f'<div class="meta">id: {m.map_id} · 物品 {len(m.items)}</div>'
             f"</div>"
         )
-    body = "\n".join(cards) if cards else "<p>第 7 期暂无地图（请先在单机版标定后发布到云控）</p>"
+    period_label = format_period_choice(show_period)
+    body = (
+        "\n".join(cards)
+        if cards
+        else f"<p>{period_label}暂无地图（请先在单机版标定后发布到云控）</p>"
+    )
     html = f"""<!doctype html>
 <html lang="zh-CN"><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>寻梦地图一览 · 第 7 期</title>
+<title>寻梦地图一览 · {period_label}</title>
 <style>
 *{{box-sizing:border-box;}}
 body{{font-family:sans-serif;background:#f6f7fb;margin:0;padding:10px 12px;color:#222;}}
@@ -413,8 +418,8 @@ overflow:hidden;text-overflow:ellipsis;}}
 .card img{{max-height:28vh;}}}}
 </style></head><body>
 <h1>寻梦记忆 · 地图一览</h1>
-<div class="badge">{format_period_choice(show_period)}</div>
-<p class="tip">仅第 7 期。请在云控客户端选择对应地图 id，进入关卡后再点开始。</p>
+<div class="badge">{period_label}</div>
+<p class="tip">仅{period_label}。请在云控客户端选择对应地图 id，进入关卡后再点开始。</p>
 <div class="grid">{body}</div>
 </body></html>"""
     return HTMLResponse(html)

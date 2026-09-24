@@ -26,7 +26,6 @@ class TargetChip:
     active: bool
     roi: tuple[int, int, int, int]
     ocr_raw: str = ""
-    method: str = ""
 
 
 def _crop(screen: np.ndarray, roi: tuple[int, int, int, int]) -> np.ndarray:
@@ -44,7 +43,10 @@ def chip_is_active(
     *,
     min_brightness: float = 95.0,
 ) -> bool:
-    """未找到的目标按钮较亮；已划线/变灰的跳过（普通模式）。"""
+    """未找到的目标按钮较亮；已划线/变灰的跳过（普通模式）。
+
+    细/浅删除线单靠视觉仍可能漏检；任务层会对刚点过的槽位做短时抑制兜底。
+    """
     if chip_bgr.size == 0:
         return False
     gray = cv2.cvtColor(chip_bgr, cv2.COLOR_BGR2GRAY)
@@ -62,11 +64,31 @@ def chip_is_active(
         if top.size and bottom.size and mid.size:
             mid_mean = float(mid.mean())
             surround = float(np.mean([top.mean(), bottom.mean()]))
-            if mid_mean + 12 < surround:
+            # 阈值从 12 降到 8，略提高对细黑线的敏感度
+            if mid_mean + 8 < surround:
                 logger.debug(
                     f"chip 中间横线检测 mid={mid_mean:.1f} surround={surround:.1f}"
                 )
                 return False
+
+        # 补充：文字中部若存在「横穿大半宽度」的暗像素带，也视为划线
+        w = gray.shape[1]
+        y0, y1 = max(0, mid_y - max(2, h // 8)), min(h, mid_y + max(2, h // 8))
+        x0, x1 = int(w * 0.1), int(w * 0.9)
+        strip = gray[y0:y1, x0:x1]
+        if strip.size:
+            # 相对整块偏暗的像素占比；删除线会形成连续偏暗带
+            thr = float(gray.mean()) - 18.0
+            dark_ratio = float(np.mean(strip < thr))
+            if dark_ratio >= 0.35:
+                # 再要求至少有一行暗像素横向连续铺开
+                row_dark = (strip < thr).mean(axis=1)
+                if float(row_dark.max()) >= 0.55:
+                    logger.debug(
+                        f"chip 划线(暗带) dark_ratio={dark_ratio:.2f} "
+                        f"row_max={float(row_dark.max()):.2f}"
+                    )
+                    return False
     return True
 
 
@@ -125,10 +147,10 @@ def recognize_chip_label(
     fuzzy_min_ratio: float = 0.72,
     map_aliases: dict[str, str] | None = None,
     strict: bool = False,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """识别槽位文字，strict 时仅精确/别名/OCR 纠错命中地图名。"""
     if chip_bgr.size == 0:
-        return "", ""
+        return "", "", ""
 
     ocr_text = ""
 
@@ -150,7 +172,7 @@ def recognize_chip_label(
 
     from core.dream_memory.label_resolve import resolve_chip_label
 
-    return resolve_chip_label(
+    name, method = resolve_chip_label(
         chip_bgr,
         ocr_text,
         map_keys,
@@ -161,6 +183,7 @@ def recognize_chip_label(
         template_min_margin=min(template_min_margin, 0.05),
         strict=strict,
     )
+    return name, method, ocr_text
 
 
 def split_bar_into_slots(
@@ -350,13 +373,12 @@ def read_target_chips(
         for patch in patches:
             actives.append(chip_is_active(patch, min_brightness=min_brightness))
 
-    batch_labels: list[tuple[str, str]] | None = None
+    batch_labels: list[tuple[str, str, str]] | None = None
     if map_keys:
         from core.dream_memory.ocr_engine import resolve_ocr_engine
 
         if resolve_ocr_engine(ocr_engine) == "rapidocr" and sum(actives) >= 1:
-            from core.dream_memory.chip_match import fuzzy_match_map_key
-            from core.dream_memory.label_resolve import apply_ocr_aliases, resolve_chip_label
+            from core.dream_memory.label_resolve import resolve_chip_label
             from core.dream_memory.ocr_rapid import ocr_chip_rapid_robust, ocr_slots_batch
 
             keys_set = set(map_keys)
@@ -366,25 +388,11 @@ def read_target_chips(
             batch_texts = ocr_slots_batch(active_patches)
             for slot_index, raw_text in zip(active_indices, batch_texts):
                 ocr_text = raw_text or ""
-                # 空结果或未命中地图名：优先别名/模糊（便宜）；只有仍无解才高倍率复识
+                # 空结果或未命中地图名时再复识（加边距/高倍率），避免只认出首字就停
                 if (not ocr_text) or (ocr_text not in keys_set):
-                    need_robust = True
-                    if ocr_text:
-                        aliased = apply_ocr_aliases(ocr_text, map_keys, map_aliases)
-                        if aliased in keys_set:
-                            need_robust = False
-                        else:
-                            fuzzy = fuzzy_match_map_key(
-                                ocr_text,
-                                map_keys,
-                                min_ratio=fuzzy_min_ratio,
-                            )
-                            if fuzzy and fuzzy[0] in keys_set:
-                                need_robust = False
-                    if need_robust:
-                        retried = ocr_chip_rapid_robust(patches[slot_index], map_keys)
-                        if retried:
-                            ocr_text = retried
+                    retried = ocr_chip_rapid_robust(patches[slot_index], map_keys)
+                    if retried:
+                        ocr_text = retried
                 name, method = resolve_chip_label(
                     patches[slot_index],
                     ocr_text,
@@ -407,14 +415,13 @@ def read_target_chips(
         active = actives[index]
         text = ""
         ocr_raw = ""
-        method = ""
         if active:
             if batch_labels is not None:
                 text, method, ocr_raw = batch_labels[index]
                 if text and method:
                     logger.debug(f"槽位 {index + 1} {method} -> {text!r}")
             elif map_keys:
-                text, method = recognize_chip_label(
+                text, method, ocr_raw = recognize_chip_label(
                     patch,
                     map_keys,
                     ocr_engine=ocr_engine,
@@ -447,7 +454,6 @@ def read_target_chips(
                 active=active,
                 roi=roi,
                 ocr_raw=ocr_raw,
-                method=method,
             )
         )
     if pk_mode:

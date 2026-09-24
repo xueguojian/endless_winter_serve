@@ -65,16 +65,26 @@ class DreamMemoryTask:
         if not self.map_id:
             raise ValueError("未选择寻梦地图")
         self.game_map: DreamMemoryMap = load_map(self.map_id)
-        if period is not None and int(period) >= 1:
-            if int(self.game_map.period) != int(period):
-                raise ValueError(
-                    f"地图「{self.game_map.name}」属于第 {self.game_map.period} 期，"
-                    f"与所选第 {period} 期不符"
-                )
+        from core.dream_memory.config import CURRENT_MAP_PERIOD
+
+        # 云控只允许当前活动期地图
+        active_period = int(CURRENT_MAP_PERIOD)
+        if period is not None and int(period) >= 1 and int(period) != active_period:
+            raise ValueError(
+                f"云控当前仅开放第 {active_period} 期，"
+                f"不支持第 {int(period)} 期"
+            )
+        if int(self.game_map.period) != active_period:
+            raise ValueError(
+                f"地图「{self.game_map.name}」属于第 {self.game_map.period} 期，"
+                f"云控当前仅开放第 {active_period} 期"
+            )
         self.config = config or _build_config({}, pk=False)
         self.on_status = on_status
         self._stop = threading.Event()
         self._unmatched_logged: set[str] = set()
+        self._recent_taps: dict[int, tuple[str, float]] = {}
+        self._recent_tap_ttl = 2.0
 
     def stop(self) -> None:
         self._stop.set()
@@ -109,24 +119,25 @@ class DreamMemoryTask:
         )
 
     def _click_batch(self, batch: list[_TapItem]) -> None:
-        """一批连点（一次下发）；不做点后校验。已划线的由下一轮 OCR 自然跳过。
+        """一批连点；已划线槽由下一轮 OCR 自然跳过，不做点后确认。
 
-        点后停顿只入队、不单独 flush：与下一轮 screenshot 合并下发，
-        让客户端「点完 → sleep → 再截图」，避免截到上一批未刷新的底栏。
+        tap_delay：本批点完后入队等待，与下一轮截图同包下发，避免截到未刷新底栏。
         """
         queue_sleep = getattr(self.adb, "queue_sleep", None)
         for index, item in enumerate(batch):
             if self._interrupted():
                 return
             self.adb.tap(item.x, item.y)
+            self._recent_taps[item.slot_index] = (item.text, time.time())
             if index < len(batch) - 1:
                 gap = sample_tap_between_delay(self.config)
                 if queue_sleep is not None:
                     queue_sleep(gap)
                 else:
                     time.sleep(gap)
-        # 整批点完后再等一会儿，给游戏划线/换目标的时间
-        settle = max(0.35, float(self.config.tap_delay))
+        settle = max(0.0, float(self.config.tap_delay))
+        if settle <= 0:
+            return
         if queue_sleep is not None:
             queue_sleep(settle)
         else:
@@ -177,14 +188,31 @@ class DreamMemoryTask:
                 pk_mode=False,
             )
             batch: list[_TapItem] = []
+            now = time.time()
             for chip in chips:
                 if not chip.active:
+                    self._recent_taps.pop(chip.slot_index, None)
                     continue
                 raw = (chip.ocr_raw or chip.text or "").strip()
                 if not chip.text:
                     if raw:
                         self._warn_unmatched_map(chip.slot_index, raw)
                     continue
+                recent = self._recent_taps.get(chip.slot_index)
+                if recent is not None:
+                    recent_text, recent_ts = recent
+                    if now - recent_ts > self._recent_tap_ttl:
+                        self._recent_taps.pop(chip.slot_index, None)
+                    elif recent_text == chip.text:
+                        logger.debug(
+                            "[{}] 槽位 {}「{}」刚点过，跳过（防重复）",
+                            self.name,
+                            chip.slot_index + 1,
+                            chip.text,
+                        )
+                        continue
+                    else:
+                        self._recent_taps.pop(chip.slot_index, None)
                 coord = resolve_item_coord(self.game_map, chip.text)
                 if coord is None:
                     self._warn_unmatched_map(chip.slot_index, raw or chip.text)
@@ -228,10 +256,13 @@ def build_dream_memory_task(
     cfg: dict[str, Any],
     on_status: StatusCallback | None = None,
 ) -> DreamMemoryTask:
+    from core.dream_memory.config import CURRENT_MAP_PERIOD
+
     map_id = str(cfg.get("selected_map") or cfg.get("map_id") or "").strip()
-    period_raw = cfg.get("selected_period", cfg.get("period"))
-    period = int(period_raw) if period_raw not in (None, "") else None
+    # 云控固定当前活动期，忽略客户端传来的旧期数
+    period = int(CURRENT_MAP_PERIOD)
     config = _build_config(dict(cfg or {}), pk=False)
+    config.selected_period = period
     return DreamMemoryTask(
         adb,
         map_id=map_id,
